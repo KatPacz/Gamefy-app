@@ -13,6 +13,10 @@ import com.example.data.local.parseStringCsv
 import com.example.data.local.parseSubtasksJson
 import com.example.data.local.toSubtasksJson
 import com.example.data.model.ActivityEventType
+import com.example.data.model.AppFontFamilyOption
+import com.example.data.model.AppFontSize
+import com.example.data.model.AppThemeId
+import com.example.data.model.AppWordSpacing
 import com.example.data.model.MILLIS_PER_DAY
 import com.example.data.model.NotificationSettings
 import com.example.data.model.NotificationSummaryStyle
@@ -1124,6 +1128,36 @@ class GamefyRepositoryTest {
     dao.upsertProfile(dao.getProfileOnce()!!.copy(lastBackupReminderTimestamp = 0L))
     assertTrue(repo.importFromJson(json))
     assertEquals(day7, dao.getProfileOnce()!!.lastBackupReminderTimestamp)
+  }
+
+  @Test
+  fun `high contrast themes and typography accessibility settings persist and survive json backup`() = runBlocking {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+
+    repo.setTheme(AppThemeId.HIGH_CONTRAST_NIGHT)
+    repo.setFontSize(AppFontSize.SUPER_LARGE)
+    repo.setFontFamily(AppFontFamilyOption.ATKINSON)
+    repo.setWordSpacing(AppWordSpacing.WIDER)
+
+    val saved = dao.getProfileOnce()!!
+    assertEquals(AppThemeId.HIGH_CONTRAST_NIGHT.code, saved.themeCode)
+    assertEquals(AppFontSize.SUPER_LARGE.code, saved.fontSizeCode)
+    assertEquals(AppFontFamilyOption.ATKINSON.code, saved.fontFamilyCode)
+    assertEquals(AppWordSpacing.WIDER.code, saved.wordSpacingCode)
+
+    val json = repo.exportToJson()
+    repo.setTheme(AppThemeId.SAPPHIRE)
+    repo.setFontSize(AppFontSize.SMALL)
+    repo.setFontFamily(AppFontFamilyOption.OPEN_DYSLEXIC)
+    repo.setWordSpacing(AppWordSpacing.STANDARD)
+
+    assertTrue(repo.importFromJson(json))
+    val restored = dao.getProfileOnce()!!
+    assertEquals(AppThemeId.HIGH_CONTRAST_NIGHT, AppThemeId.fromCode(restored.themeCode))
+    assertEquals(AppFontSize.SUPER_LARGE, AppFontSize.fromCode(restored.fontSizeCode))
+    assertEquals(AppFontFamilyOption.ATKINSON, AppFontFamilyOption.fromCode(restored.fontFamilyCode))
+    assertEquals(AppWordSpacing.WIDER, AppWordSpacing.fromCode(restored.wordSpacingCode))
   }
 }
 

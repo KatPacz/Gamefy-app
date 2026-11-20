@@ -25,7 +25,10 @@ import com.example.data.local.toStringCsv
 import com.example.data.local.toSubtasksJson
 import com.example.data.model.AchievementDefinition
 import com.example.data.model.ActivityEventType
+import com.example.data.model.AppFontFamilyOption
+import com.example.data.model.AppFontSize
 import com.example.data.model.AppThemeId
+import com.example.data.model.AppWordSpacing
 import com.example.data.model.GAMEFY_ACHIEVEMENTS
 import com.example.data.model.MILLIS_PER_DAY
 import com.example.data.model.MILLIS_PER_HOUR
@@ -841,6 +844,21 @@ class GamefyRepository(private val dao: GamefyDao) {
     dao.upsertProfile(profile.copy(themeCode = theme.code))
   }
 
+  suspend fun setFontSize(fontSize: AppFontSize) {
+    val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+    dao.upsertProfile(profile.copy(fontSizeCode = fontSize.code))
+  }
+
+  suspend fun setFontFamily(fontFamily: AppFontFamilyOption) {
+    val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+    dao.upsertProfile(profile.copy(fontFamilyCode = fontFamily.code))
+  }
+
+  suspend fun setWordSpacing(wordSpacing: AppWordSpacing) {
+    val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+    dao.upsertProfile(profile.copy(wordSpacingCode = wordSpacing.code))
+  }
+
   suspend fun setNotificationsEnabled(enabled: Boolean) {
     val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
     dao.upsertProfile(profile.copy(notificationsEnabled = enabled))
@@ -1416,6 +1434,9 @@ class GamefyRepository(private val dao: GamefyDao) {
           put("rsqAcceptedIdsCsv", profile.rsqAcceptedIdsCsv)
           put("rsqAcceptedCountToday", profile.rsqAcceptedCountToday)
           put("lastBackupReminderTimestamp", profile.lastBackupReminderTimestamp)
+          put("fontSizeCode", profile.fontSizeCode)
+          put("fontFamilyCode", profile.fontFamilyCode)
+          put("wordSpacingCode", profile.wordSpacingCode)
         },
       )
       put(
@@ -1596,6 +1617,9 @@ class GamefyRepository(private val dao: GamefyDao) {
         rsqAcceptedIdsCsv = pObj.optString("rsqAcceptedIdsCsv", ""),
         rsqAcceptedCountToday = pObj.optInt("rsqAcceptedCountToday", 0),
         lastBackupReminderTimestamp = pObj.optLong("lastBackupReminderTimestamp", 0L),
+        fontSizeCode = pObj.optString("fontSizeCode", AppFontSize.DEFAULT.code),
+        fontFamilyCode = pObj.optString("fontFamilyCode", AppFontFamilyOption.DEFAULT.code),
+        wordSpacingCode = pObj.optString("wordSpacingCode", AppWordSpacing.STANDARD.code),
       )
 
       val attrsArr = root.getJSONArray("attributes")

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -71,13 +72,14 @@ fun PixelCard(
   borderColor: Color = LocalGamefyPalette.current.divider,
   content: @Composable ColumnScope.() -> Unit,
 ) {
+  val palette = LocalGamefyPalette.current
   Surface(
     modifier = modifier.fillMaxWidth(),
     shape = RoundedCornerShape(18.dp),
     color = containerColor,
-    border = BorderStroke(1.5.dp, borderColor),
-    tonalElevation = 2.dp,
-    shadowElevation = 2.dp,
+    border = BorderStroke(if (palette.isHighContrast) 2.5.dp else 1.5.dp, borderColor),
+    tonalElevation = if (palette.isHighContrast) 0.dp else 2.dp,
+    shadowElevation = if (palette.isHighContrast) 0.dp else 2.dp,
   ) {
     Column(modifier = Modifier.padding(contentPadding), content = content)
   }
@@ -90,7 +92,11 @@ fun PixelButton(
   modifier: Modifier = Modifier,
   enabled: Boolean = true,
   containerColor: Color = LocalGamefyPalette.current.accent,
-  contentColor: Color = Color.White,
+  contentColor: Color = if (containerColor == LocalGamefyPalette.current.accent) {
+    LocalGamefyPalette.current.onAccent
+  } else {
+    Color.White
+  },
   compact: Boolean = false,
   horizontalPadding: Dp = if (compact) 12.dp else 18.dp,
   fontSize: androidx.compose.ui.unit.TextUnit = if (compact) 12.sp else 14.sp,
@@ -145,7 +151,7 @@ fun PixelButton(
     contentAlignment = Alignment.Center,
   ) {
     Row(
-      modifier = Modifier.height(heightMin - if (compact) 16.dp else 22.dp),
+      modifier = Modifier.heightIn(min = heightMin - if (compact) 16.dp else 22.dp),
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.Center,
     ) {

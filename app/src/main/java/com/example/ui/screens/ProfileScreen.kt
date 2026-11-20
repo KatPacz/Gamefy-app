@@ -72,7 +72,10 @@ import com.example.data.local.FolderEntity
 import com.example.data.local.TagEntity
 import com.example.data.local.parseStringCsv
 import com.example.data.model.AchievementDefinition
+import com.example.data.model.AppFontFamilyOption
+import com.example.data.model.AppFontSize
 import com.example.data.model.AppThemeId
+import com.example.data.model.AppWordSpacing
 import com.example.data.model.GAMEFY_ACHIEVEMENTS
 import com.example.data.model.NotificationSettings
 import com.example.data.model.StatsCoinRange
@@ -93,6 +96,7 @@ import com.example.ui.theme.BodyFontFamily
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
 import com.example.ui.theme.PixelFontFamily
+import com.example.ui.theme.bodyFontFamilyFor
 import com.example.ui.theme.paletteForTheme
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -128,6 +132,9 @@ fun ProfileScreen(
   onUpdateTag: (TagEntity) -> Unit,
   onDeleteTag: (Long) -> Unit,
   onSelectTheme: (AppThemeId) -> Unit,
+  onSelectFontSize: (AppFontSize) -> Unit = {},
+  onSelectFontFamily: (AppFontFamilyOption) -> Unit = {},
+  onSelectWordSpacing: (AppWordSpacing) -> Unit = {},
   onToggleNotifications: (Boolean) -> Unit,
   onUpdateNotificationSettings: (NotificationSettings) -> Unit,
   onExportBackup: suspend () -> String,
@@ -276,7 +283,7 @@ fun ProfileScreen(
                   fontFamily = PixelFontFamily,
                   fontWeight = FontWeight.Bold,
                   fontSize = 9.5.sp,
-                  color = if (selected) Color.White else palette.textMuted,
+                  color = if (selected) palette.onAccent else palette.textMuted,
                   maxLines = 1,
                   overflow = TextOverflow.Ellipsis,
                 )
@@ -659,50 +666,268 @@ fun ProfileScreen(
                   color = palette.textPrimary,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+
+                val themeGroups = remember {
+                  listOf(
+                    "Dzienne" to AppThemeId.entries.filter { !it.isDark && !it.isHighContrast },
+                    "Nocne" to AppThemeId.entries.filter { it.isDark && !it.isHighContrast },
+                    "Wysoki kontrast" to AppThemeId.entries.filter { it.isHighContrast },
+                  )
+                }
+
+                themeGroups.forEachIndexed { groupIndex, (groupTitle, themes) ->
+                  if (groupIndex > 0) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                  }
+                  Text(
+                    text = groupTitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textMuted,
+                    fontWeight = FontWeight.SemiBold,
+                  )
+                  Spacer(modifier = Modifier.height(6.dp))
+                  FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                  ) {
+                    themes.forEach { theme ->
+                      val selected = uiState.themeId == theme
+                      val themePalette = remember(theme) { paletteForTheme(theme) }
+                      Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (selected) palette.accent else palette.surfaceSubtle,
+                        border = BorderStroke(
+                          if (selected || palette.isHighContrast) 2.dp else 1.5.dp,
+                          if (selected) palette.outline else palette.divider,
+                        ),
+                        modifier = Modifier
+                          .clickable { onSelectTheme(theme) }
+                          .testTag("theme_${theme.code}"),
+                      ) {
+                        Row(
+                          modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                          Box(
+                            modifier = Modifier
+                              .size(14.dp)
+                              .clip(CircleShape)
+                              .background(themePalette.accent)
+                              .border(1.5.dp, themePalette.outline, CircleShape),
+                          )
+                          Text(
+                            text = theme.label.uppercase(),
+                            fontFamily = PixelFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            color = if (selected) palette.onAccent else palette.textPrimary,
+                          )
+                          if (selected) {
+                            Icon(
+                              imageVector = Icons.Default.Check,
+                              contentDescription = null,
+                              tint = palette.onAccent,
+                              modifier = Modifier.size(14.dp),
+                            )
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+
+                HorizontalDivider(
+                  modifier = Modifier.padding(vertical = 12.dp),
+                  color = palette.divider,
+                )
+
+                Text(
+                  text = "Czcionka i czytelność",
+                  style = MaterialTheme.typography.titleSmall,
+                  fontWeight = FontWeight.Bold,
+                  color = palette.textPrimary,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                  text = "Rozmiar czcionki",
+                  style = MaterialTheme.typography.labelSmall,
+                  color = palette.textMuted,
+                  fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
                 FlowRow(
                   horizontalArrangement = Arrangement.spacedBy(8.dp),
                   verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                  AppThemeId.entries.forEach { theme ->
-                    val selected = uiState.themeId == theme
-                    val themePalette = remember(theme) { paletteForTheme(theme) }
+                  AppFontSize.entries.forEach { sizeOpt ->
+                    val selected = uiState.fontSize == sizeOpt
                     Surface(
                       shape = RoundedCornerShape(10.dp),
                       color = if (selected) palette.accent else palette.surfaceSubtle,
-                      border = BorderStroke(2.dp, if (selected) palette.outline else palette.divider),
+                      border = BorderStroke(
+                        if (selected || palette.isHighContrast) 2.dp else 1.5.dp,
+                        if (selected) palette.outline else palette.divider,
+                      ),
                       modifier = Modifier
-                        .clickable { onSelectTheme(theme) }
-                        .testTag("theme_${theme.code}"),
+                        .clickable { onSelectFontSize(sizeOpt) }
+                        .testTag("font_size_${sizeOpt.code}"),
                     ) {
                       Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
                       ) {
-                        Box(
-                          modifier = Modifier
-                            .size(14.dp)
-                            .clip(CircleShape)
-                            .background(themePalette.accent)
-                            .border(1.5.dp, Color.White, CircleShape),
-                        )
                         Text(
-                          text = theme.label.uppercase(),
-                          fontFamily = PixelFontFamily,
+                          text = sizeOpt.label,
+                          style = MaterialTheme.typography.labelMedium,
                           fontWeight = FontWeight.Bold,
-                          fontSize = 11.sp,
-                          color = if (selected) Color.White else palette.textPrimary,
+                          color = if (selected) palette.onAccent else palette.textPrimary,
                         )
                         if (selected) {
                           Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = palette.onAccent,
                             modifier = Modifier.size(14.dp),
                           )
                         }
                       }
                     }
+                  }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                  text = "Typ czcionki",
+                  style = MaterialTheme.typography.labelSmall,
+                  color = palette.textMuted,
+                  fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                FlowRow(
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                  verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  AppFontFamilyOption.entries.forEach { familyOpt ->
+                    val selected = uiState.fontFamilyOption == familyOpt
+                    val previewFamily = remember(familyOpt) { bodyFontFamilyFor(familyOpt) }
+                    Surface(
+                      shape = RoundedCornerShape(10.dp),
+                      color = if (selected) palette.accent else palette.surfaceSubtle,
+                      border = BorderStroke(
+                        if (selected || palette.isHighContrast) 2.dp else 1.5.dp,
+                        if (selected) palette.outline else palette.divider,
+                      ),
+                      modifier = Modifier
+                        .clickable { onSelectFontFamily(familyOpt) }
+                        .testTag("font_family_${familyOpt.code}"),
+                    ) {
+                      Column(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                      ) {
+                        Row(
+                          verticalAlignment = Alignment.CenterVertically,
+                          horizontalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
+                          Text(
+                            text = familyOpt.label,
+                            fontFamily = previewFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = if (selected) palette.onAccent else palette.textPrimary,
+                          )
+                          if (selected) {
+                            Icon(
+                              imageVector = Icons.Default.Check,
+                              contentDescription = null,
+                              tint = palette.onAccent,
+                              modifier = Modifier.size(14.dp),
+                            )
+                          }
+                        }
+                        Text(
+                          text = familyOpt.subtitle,
+                          fontFamily = previewFamily,
+                          fontSize = 10.sp,
+                          color = if (selected) palette.onAccent.copy(alpha = 0.85f) else palette.textMuted,
+                        )
+                      }
+                    }
+                  }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                  text = "Odstępy między słowami",
+                  style = MaterialTheme.typography.labelSmall,
+                  color = palette.textMuted,
+                  fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                FlowRow(
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                  verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  AppWordSpacing.entries.forEach { spacingOpt ->
+                    val selected = uiState.wordSpacing == spacingOpt
+                    Surface(
+                      shape = RoundedCornerShape(10.dp),
+                      color = if (selected) palette.accent else palette.surfaceSubtle,
+                      border = BorderStroke(
+                        if (selected || palette.isHighContrast) 2.dp else 1.5.dp,
+                        if (selected) palette.outline else palette.divider,
+                      ),
+                      modifier = Modifier
+                        .clickable { onSelectWordSpacing(spacingOpt) }
+                        .testTag("word_spacing_${spacingOpt.code}"),
+                    ) {
+                      Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                      ) {
+                        Text(
+                          text = spacingOpt.label,
+                          style = MaterialTheme.typography.labelMedium,
+                          fontWeight = FontWeight.Bold,
+                          color = if (selected) palette.onAccent else palette.textPrimary,
+                        )
+                        if (selected) {
+                          Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = null,
+                            tint = palette.onAccent,
+                            modifier = Modifier.size(14.dp),
+                          )
+                        }
+                      }
+                    }
+                  }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                  shape = RoundedCornerShape(10.dp),
+                  color = palette.surfaceSubtle,
+                  border = BorderStroke(1.dp, palette.divider),
+                  modifier = Modifier.fillMaxWidth(),
+                ) {
+                  Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                  ) {
+                    Text(
+                      text = "Podgląd czytelności",
+                      style = MaterialTheme.typography.titleSmall,
+                      color = palette.textPrimary,
+                    )
+                    Text(
+                      text = "Zażółć gęślą jaźń — Twoje zadania i opisy będą wyglądać właśnie tak.",
+                      style = MaterialTheme.typography.bodySmall,
+                      color = palette.textMuted,
+                    )
                   }
                 }
 

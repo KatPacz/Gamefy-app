@@ -27,9 +27,12 @@ data class GamefyPalette(
   val divider: Color,
   val outline: Color,
   val isDark: Boolean,
+  val isHighContrast: Boolean = false,
+  val onAccent: Color = Color.White,
 )
 
 fun paletteForTheme(themeId: AppThemeId): GamefyPalette = when (themeId) {
+  // --- 3 motywy dzienne ---
   AppThemeId.VIOLET -> GamefyPalette(
     themeId = themeId,
     background = Color(0xFFF3F1FB),
@@ -41,20 +44,6 @@ fun paletteForTheme(themeId: AppThemeId): GamefyPalette = when (themeId) {
     accentSecondary = Color(0xFFA06BFF),
     divider = Color(0xFFE2DDF3),
     outline = Color(0xFF2B2140),
-    isDark = false,
-  )
-
-  AppThemeId.OCEAN -> GamefyPalette(
-    themeId = themeId,
-    background = Color(0xFFEEF6FB),
-    surface = Color(0xFFFFFFFF),
-    surfaceSubtle = Color(0xFFE2F0F8),
-    textPrimary = Color(0xFF10222E),
-    textMuted = Color(0xFF5D7686),
-    accent = Color(0xFF0B7FC7),
-    accentSecondary = Color(0xFF2FC4D6),
-    divider = Color(0xFFD5E6F0),
-    outline = Color(0xFF1B2B3A),
     isDark = false,
   )
 
@@ -86,6 +75,7 @@ fun paletteForTheme(themeId: AppThemeId): GamefyPalette = when (themeId) {
     isDark = false,
   )
 
+  // --- 3 motywy nocne ---
   AppThemeId.NIGHT -> GamefyPalette(
     themeId = themeId,
     background = Color(0xFF141222),
@@ -112,5 +102,52 @@ fun paletteForTheme(themeId: AppThemeId): GamefyPalette = when (themeId) {
     divider = Color(0xFF26262C),
     outline = Color(0xFF3A3A44),
     isDark = true,
+  )
+
+  AppThemeId.SAPPHIRE -> GamefyPalette(
+    themeId = themeId,
+    background = Color(0xFF0A1324),
+    surface = Color(0xFF122038),
+    surfaceSubtle = Color(0xFF1B2E4E),
+    textPrimary = Color(0xFFEEF5FF),
+    textMuted = Color(0xFF9CB4D4),
+    accent = Color(0xFF0284C7),
+    accentSecondary = Color(0xFF38BDF8),
+    divider = Color(0xFF243B61),
+    outline = Color(0xFF060C18),
+    isDark = true,
+  )
+
+  // --- 2 motywy High Contrast (WCAG AAA) ---
+  AppThemeId.HIGH_CONTRAST_DAY -> GamefyPalette(
+    themeId = themeId,
+    background = Color(0xFFFFFFFF),
+    surface = Color(0xFFFFFFFF),
+    surfaceSubtle = Color(0xFFEDEDED),
+    textPrimary = Color(0xFF000000),
+    textMuted = Color(0xFF1A1A1A),
+    accent = Color(0xFF0026B3),
+    accentSecondary = Color(0xFF7A0066),
+    divider = Color(0xFF000000),
+    outline = Color(0xFF000000),
+    isDark = false,
+    isHighContrast = true,
+    onAccent = Color.White,
+  )
+
+  AppThemeId.HIGH_CONTRAST_NIGHT -> GamefyPalette(
+    themeId = themeId,
+    background = Color(0xFF000000),
+    surface = Color(0xFF000000),
+    surfaceSubtle = Color(0xFF1A1A1A),
+    textPrimary = Color(0xFFFFFFFF),
+    textMuted = Color(0xFFE6E6E6),
+    accent = Color(0xFFFFD600),
+    accentSecondary = Color(0xFF00E5FF),
+    divider = Color(0xFFFFFFFF),
+    outline = Color(0xFFFFFFFF),
+    isDark = true,
+    isHighContrast = true,
+    onAccent = Color(0xFF000000),
   )
 }

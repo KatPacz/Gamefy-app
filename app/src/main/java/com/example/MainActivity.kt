@@ -229,7 +229,12 @@ fun GamefyRootScreen(
     }
   }
 
-  GamefyTheme(themeId = uiState.themeId) {
+  GamefyTheme(
+    themeId = uiState.themeId,
+    fontSize = uiState.fontSize,
+    fontFamilyOption = uiState.fontFamilyOption,
+    wordSpacing = uiState.wordSpacing,
+  ) {
     val palette = LocalGamefyPalette.current
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -506,6 +511,9 @@ fun GamefyRootScreen(
                 onUpdateTag = viewModel::updateTag,
                 onDeleteTag = viewModel::deleteTag,
                 onSelectTheme = viewModel::setTheme,
+                onSelectFontSize = viewModel::setFontSize,
+                onSelectFontFamily = viewModel::setFontFamily,
+                onSelectWordSpacing = viewModel::setWordSpacing,
                 onToggleNotifications = viewModel::setNotificationsEnabled,
                 onUpdateNotificationSettings = viewModel::updateNotificationSettings,
                 onExportBackup = viewModel::exportBackupJson,

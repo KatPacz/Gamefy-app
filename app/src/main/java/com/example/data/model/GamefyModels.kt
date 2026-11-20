@@ -51,16 +51,60 @@ enum class PurchaseLimitPeriod(val code: String, val label: String) {
   }
 }
 
-enum class AppThemeId(val code: String, val label: String, val isDark: Boolean) {
-  VIOLET("violet", "Fiolet", false),
-  OCEAN("ocean", "Ocean", false),
-  FOREST("forest", "Las", false),
-  ROSE("rose", "Róża", false),
-  NIGHT("night", "Noc", true),
-  AMOLED("amoled", "AMOLED", true);
+enum class AppThemeId(
+  val code: String,
+  val label: String,
+  val isDark: Boolean,
+  val isHighContrast: Boolean = false,
+) {
+  VIOLET("violet", "Fiolet", isDark = false),
+  FOREST("forest", "Las", isDark = false),
+  ROSE("rose", "Róża", isDark = false),
+  NIGHT("night", "Noc", isDark = true),
+  AMOLED("amoled", "AMOLED", isDark = true),
+  SAPPHIRE("sapphire", "Szafir", isDark = true),
+  HIGH_CONTRAST_DAY("hc_day", "Kontrast Dzień", isDark = false, isHighContrast = true),
+  HIGH_CONTRAST_NIGHT("hc_night", "Kontrast Noc", isDark = true, isHighContrast = true);
 
   companion object {
     fun fromCode(code: String): AppThemeId = entries.find { it.code == code } ?: VIOLET
+  }
+}
+
+enum class AppFontSize(val code: String, val label: String, val scale: Float) {
+  SMALL("small", "Mała", 0.88f),
+  DEFAULT("default", "Domyślna", 1.0f),
+  LARGE("large", "Duża", 1.15f),
+  SUPER_LARGE("super_large", "Super duża", 1.32f);
+
+  companion object {
+    fun fromCode(code: String): AppFontSize = entries.find { it.code == code } ?: DEFAULT
+  }
+}
+
+enum class AppFontFamilyOption(val code: String, val label: String, val subtitle: String) {
+  DEFAULT("default", "Domyślna", "Pixel + Jakarta"),
+  OPEN_DYSLEXIC("opendyslexic", "OpenDyslexic", "odp. Lexend"),
+  HELVETICA("helvetica", "Helvetica", "odp. Arimo"),
+  ATKINSON("atkinson", "Atkinson Hyperlegible", "Braille Institute");
+
+  companion object {
+    fun fromCode(code: String): AppFontFamilyOption = entries.find { it.code == code } ?: DEFAULT
+  }
+}
+
+enum class AppWordSpacing(
+  val code: String,
+  val label: String,
+  val extraLetterSpacingSp: Float,
+  val lineHeightMultiplier: Float,
+  val horizontalScaleX: Float,
+) {
+  STANDARD("standard", "Standardowe", 0f, 1.0f, 1.0f),
+  WIDER("wider", "Większe", 1.35f, 1.18f, 1.05f);
+
+  companion object {
+    fun fromCode(code: String): AppWordSpacing = entries.find { it.code == code } ?: STANDARD
   }
 }
 

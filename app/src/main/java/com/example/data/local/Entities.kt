@@ -47,6 +47,9 @@ data class PlayerProfileEntity(
   val rsqAcceptedIdsCsv: String = "",
   val rsqAcceptedCountToday: Int = 0,
   val lastBackupReminderTimestamp: Long = 0L,
+  val fontSizeCode: String = "default",
+  val fontFamilyCode: String = "default",
+  val wordSpacingCode: String = "standard",
 )
 
 @Entity(tableName = "attributes")

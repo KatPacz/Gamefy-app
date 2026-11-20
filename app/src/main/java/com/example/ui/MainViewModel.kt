@@ -16,7 +16,10 @@ import com.example.data.local.TagEntity
 import com.example.data.local.TaskEntity
 import com.example.data.local.parseStringCsv
 import com.example.data.model.AchievementDefinition
+import com.example.data.model.AppFontFamilyOption
+import com.example.data.model.AppFontSize
 import com.example.data.model.AppThemeId
+import com.example.data.model.AppWordSpacing
 import com.example.data.model.NotificationSettings
 import com.example.data.model.OnboardingArea
 import com.example.data.model.OnboardingDetailPref
@@ -95,6 +98,12 @@ data class GamefyUiState(
 ) {
   val themeId: AppThemeId
     get() = AppThemeId.fromCode(profile.themeCode)
+  val fontSize: AppFontSize
+    get() = AppFontSize.fromCode(profile.fontSizeCode)
+  val fontFamilyOption: AppFontFamilyOption
+    get() = AppFontFamilyOption.fromCode(profile.fontFamilyCode)
+  val wordSpacing: AppWordSpacing
+    get() = AppWordSpacing.fromCode(profile.wordSpacingCode)
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -614,6 +623,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun setTheme(theme: AppThemeId) {
     viewModelScope.launch { repository.setTheme(theme) }
+  }
+
+  fun setFontSize(fontSize: AppFontSize) {
+    viewModelScope.launch { repository.setFontSize(fontSize) }
+  }
+
+  fun setFontFamily(fontFamily: AppFontFamilyOption) {
+    viewModelScope.launch { repository.setFontFamily(fontFamily) }
+  }
+
+  fun setWordSpacing(wordSpacing: AppWordSpacing) {
+    viewModelScope.launch { repository.setWordSpacing(wordSpacing) }
   }
 
   fun setNotificationsEnabled(enabled: Boolean) {

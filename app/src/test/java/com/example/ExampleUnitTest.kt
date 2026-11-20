@@ -12,6 +12,10 @@ import com.example.ui.components.colorToHsv
 import com.example.ui.components.hsvToColor
 import com.example.ui.components.parseHexColor
 import com.example.data.model.ActivityEventType
+import com.example.data.model.AppFontFamilyOption
+import com.example.data.model.AppFontSize
+import com.example.data.model.AppThemeId
+import com.example.data.model.AppWordSpacing
 import com.example.data.model.MILLIS_PER_DAY
 import com.example.data.model.NotificationSettings
 import com.example.data.model.NotificationSummaryStyle
@@ -56,6 +60,7 @@ import com.example.data.model.startOfLocalDayMillis
 import com.example.data.model.startOfLocalMonthMillis
 import com.example.data.model.taskRewardSortValue
 import com.example.ui.screens.buildHorizonDayBuckets
+import com.example.ui.theme.paletteForTheme
 import java.util.Calendar
 import kotlin.random.Random
 import org.junit.Assert.assertEquals
@@ -475,6 +480,36 @@ class ExampleUnitTest {
     }.timeInMillis
     assertEquals(20261120L, localCalendarDayKey(beforeMidnight))
     assertEquals(20261121L, localCalendarDayKey(afterMidnight))
+  }
+
+  @Test
+  fun themesHaveExactDayNightHighContrastCountsAndTypographyOptionsAreValid() {
+    val themes = AppThemeId.entries
+    assertEquals(8, themes.size)
+    assertEquals(3, themes.count { !it.isDark && !it.isHighContrast })
+    assertEquals(3, themes.count { it.isDark && !it.isHighContrast })
+    assertEquals(1, themes.count { !it.isDark && it.isHighContrast })
+    assertEquals(1, themes.count { it.isDark && it.isHighContrast })
+    assertTrue(themes.none { it.code == "ocean" })
+    // Legacy backup referencing removed "ocean" safely falls back to VIOLET
+    assertEquals(AppThemeId.VIOLET, AppThemeId.fromCode("ocean"))
+
+    // Every theme builds a valid palette and high-contrast themes mark isHighContrast = true
+    themes.forEach { theme ->
+      val p = paletteForTheme(theme)
+      assertEquals(theme.isDark, p.isDark)
+      assertEquals(theme.isHighContrast, p.isHighContrast)
+    }
+
+    assertEquals(4, AppFontSize.entries.size)
+    assertTrue(AppFontSize.SMALL.scale < AppFontSize.DEFAULT.scale)
+    assertTrue(AppFontSize.DEFAULT.scale < AppFontSize.LARGE.scale)
+    assertTrue(AppFontSize.LARGE.scale < AppFontSize.SUPER_LARGE.scale)
+
+    assertEquals(4, AppFontFamilyOption.entries.size)
+    assertEquals(2, AppWordSpacing.entries.size)
+    assertTrue(AppWordSpacing.WIDER.extraLetterSpacingSp > AppWordSpacing.STANDARD.extraLetterSpacingSp)
+    assertTrue(AppWordSpacing.WIDER.lineHeightMultiplier > AppWordSpacing.STANDARD.lineHeightMultiplier)
   }
 }
 
