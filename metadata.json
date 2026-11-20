@@ -1,0 +1,6 @@
+{
+  "name": "Gamefy",
+  "description": "Lokalna aplikacja produktywności z grywalizacją: zadania cykliczne, timer Pomodoro i custom, atrybuty RPG, sklep nagród, skrzynia i kopia zapasowa JSON.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

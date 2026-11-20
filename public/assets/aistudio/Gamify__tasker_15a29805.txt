@@ -1,0 +1,440 @@
+
+Inspirując się aplikacją LifeUp - Gamified To Do List & habit-building application I biorąc pod uwagę poniższe informację pomóż mi stworzyć dla androida plik apk który będzie totalnie lokalny i bezpieczny, nie będzie wysyłał żenych danych ale równocześnie będzie po prostu ładny graficznie. Zanim zaczniesz tworzyć alikację zadaj mi pytania co do rzeczy których nie jesteś pewien. "same app, add option "done" or success or similar that allow for setting new timer once task is done before the task expires (set timer like once per week and if task took 10 days show that task is delayed byt do not keep 2 outdone tasks, but leave the first that is still unchecked and set the time task will be overdue as in the end of the 7 days (week) ) same if task is done in 3 days- next task will appear on day 7 and start counting until done (overdue in 7) also remove community tasks and integration with outside systems, synchro etc. instead allow for a simple backup on device or google disc, and in the place for community add nice, big timer and below it todo tasks that are to be done the quickest (nearest overdue) "
+Jak wygląda aplikacja?
+
+W przeciwieństwie do Habitica czy innych aplikacji RPG, LifeUp nie stawia na fantasy, postacie, ekwipunek bohatera czy walki z potworami. Interfejs jest utrzymany w stylu Material Design i przypomina raczej nowoczesną aplikację produktywności niż grę.
+
+Główne elementy wyglądu:
+
+lista zadań i nawyków,
+system poziomów (leveli),
+atrybuty postaci,
+sklep z nagrodami,
+ekwipunek/inwentarz,
+osiągnięcia (achievements),
+statystyki postępów,
+moduł Pomodoro,
+dziennik i historia aktywności.
+
+Całość wygląda bardziej jak:
+
+Todoist + Habit Tracker + RPG Economy Simulator
+
+niż jak klasyczna gra RPG.
+
+Jak działa podstawowy system?
+1. Wykonujesz zadanie
+
+Przykład:
+
+przeczytać 20 stron książki
+trening siłowy
+nauka języka przez 30 minut
+
+Po wykonaniu zadania dostajesz:
+
+EXP (doświadczenie)
+monety (gold)
+wzrost przypisanych statystyk.
+2. Rozwijasz własne atrybuty
+
+Możesz stworzyć dowolne cechy.
+
+Przykład:
+
+Atrybut    Co go rozwija
+Siła    treningi
+Wiedza    nauka
+Kreatywność    rysowanie
+Zdrowie    spacery
+Dyscyplina    poranne rutyny
+
+Każde zadanie może zwiększać wybrane statystyki. Dzięki temu po kilku miesiącach możesz zobaczyć, że np.:
+
+Wiedza = 5230 pkt
+Zdrowie = 3800 pkt
+Kreatywność = 1200 pkt
+
+Aplikacja zamienia abstrakcyjny rozwój osobisty w liczby i poziomy.
+
+Zdobywasz poziomy
+Tak jak w RPG.
+
+Zadania dają doświadczenie:
+
+Level 1
+Level 2
+Level 3
+
+itd.
+
+Może to być poziom ogólny lub rozwój konkretnych atrybutów.
+
+System monet i nagród
+
+To jeden z najmocniejszych elementów LifeUp.
+
+Za wykonanie pracy zdobywasz walutę.
+
+Następnie możesz ją wydać w sklepie.
+
+Przykład użytkowników z Reddita:
+
+Nagroda    Koszt
+kawa    250
+drzemka    300
+piwo    500
+sushi    2500
+sesja D&D    5000
+
+Dzięki temu tworzy się mechanizm:
+
+"Najpierw wykonuję obowiązki, a potem zasłużenie kupuję nagrodę."
+
+Psychologicznie przypomina to system token economy używany w terapii ADHD i budowaniu nawyków.
+
+Sklep i przedmioty
+
+LifeUp pozwala tworzyć własne przedmioty:
+
+kawa
+dzień wolny
+nowa książka
+zakup gry
+godzina Netflixa
+cheat day
+
+i dosłownie kupować je za zarobione punkty.
+
+Niektórzy użytkownicy integrują to z automatyzacjami telefonu.
+
+Jeden z użytkowników Reddita stworzył system, w którym:
+
+social media są blokowane,
+dostęp odblokowuje dopiero zakup odpowiedniego przedmiotu w LifeUp,
+odblokowanie działa tylko przez określony czas.
+
+To już poziom bardzo zaawansowanej samokontroli.
+
+Osiągnięcia (Achievements)
+
+Możesz tworzyć osiągnięcia podobne do tych z Xboxa lub Steam.
+
+Przykłady:
+
+✅ Przeczytaj 10 książek
+
+✅ 100 treningów
+
+✅ 30 dni bez opuszczenia nawyku
+
+✅ 100 godzin nauki języka
+
+✅ 10 000 kroków przez 50 dni
+
+Po spełnieniu warunków wyskakuje odblokowanie achievementu.
+
+Lootboxy, crafting i kolekcjonowanie
+
+To bardzo nietypowy element.
+
+LifeUp posiada:
+
+skrzynki (loot boxes),
+losowe nagrody,
+kolekcjonowanie przedmiotów,
+crafting.
+
+Przykład:
+
+wykonujesz zadania,
+zdobywasz walutę,
+kupujesz skrzynkę,
+losujesz nagrodę.
+
+Niektórzy użytkownicy traktują to jak mini-grę kolekcjonerską.
+
+Pomodoro
+
+Wbudowany jest również system Pomodoro.
+
+Za sesje skupionej pracy możesz automatycznie dostawać:
+
+EXP
+monety
+postęp w statystykach.
+
+To ciekawe rozwiązanie dla:
+
+ADHD,
+osób pracujących zdalnie,
+studentów.
+Dziennik i śledzenie nastroju
+
+LifeUp oferuje również funkcję "Feelings".
+
+Pozwala zapisywać:
+
+emocje,
+notatki,
+refleksje,
+historię zdarzeń.
+
+W praktyce można z tego zrobić prosty dziennik.
+
+Personalizacja
+
+To prawdopodobnie największa zaleta aplikacji.
+
+Według twórców można dostosować:
+
+atrybuty,
+waluty,
+poziomy,
+przedmioty,
+osiągnięcia,
+warunki automatycznego odblokowania,
+nagrody Pomodoro,
+system kar,
+system ekonomii.
+
+Wiele opinii użytkowników podkreśla wręcz, że liczba opcji jest ogromna.
+
+Wrażenia użytkowników z Reddita
+
+Powtarzające się motywy:
+
+Plusy
+
+✅ bardzo motywuje osoby lubiące gry
+
+✅ świetne dla ADHD
+
+✅ niezwykle rozbudowane
+
+✅ praktycznie nieograniczona personalizacja
+
+✅ aktywny deweloper
+
+✅ lekkie i szybkie działanie.
+
+Minusy
+
+❌ może przytłoczyć początkujących
+
+❌ wymaga czasu na konfigurację
+
+❌ łatwo „oszukiwać”, jeśli samemu nie pilnuje się zasad
+
+❌ część osób spędza zbyt dużo czasu na projektowaniu systemu zamiast realizacji zadań.
+
+Dla kogo LifeUp jest idealne?
+Tak
+osoby z ADHD,
+gracze RPG,
+fani statystyk i danych,
+osoby budujące wiele nawyków jednocześnie,
+studenci,
+programiści,
+osoby lubiące Notion, Obsidiana, Todoist i systemy produktywności.
+Niekoniecznie
+osoby chcące prostą listę zadań,
+osoby lubiące minimalizm,
+osoby niechętne konfiguracji.
+Moja ocena użytkowości
+
+Gdybym miał umieścić aplikacje w kategorii gamifikacji produktywności:
+
+LifeUp – największa głębia i personalizacja
+Habitica – więcej „gry”, mniej produktywności
+Finch – bardziej opieka nad sobą i wellbeing
+Todoist + Habit Tracker – prostota, ale bez grywalizacji
+
+LifeUp przypomina bardziej budowanie własnego systemu rozwoju osobistego RPG niż korzystanie z gotowej aplikacji. To jego największa zaleta i jednocześnie największa wada. Jeśli lubisz projektować własne procesy i śledzić postępy liczbowo, trudno znaleźć obecnie bardziej zaawansowane narzędzie w tej kategorii.
+
+Jak mam dostarczyć aplikację, skoro nie zbuduję APK u siebie?
+Podgląd tutaj (HTML), potem projekt do zbudowania APK
+Jakie elementy gamifikacji z LifeUp mają zostać?
+EXP i poziomy, Monety i sklep z nagrodami, Atrybuty (Siła, Wiedza itd.), Osiągnięcia, Pomodoro lub timer (ostatni wybór użytkownika)
+Jak ma działać kopia zapasowa na Dysk Google?
+Eksport/import pliku przez systemowy wybór pliku (można zapisać na Dysku, aplikacja sama nic nie wysyła)
+Gamefy – lokalne zadania z grywalizacją
+Artifact
+·Only you
+Podgląd działającej aplikacji nazwałam roboczo „Rytm”. Jest w pełni lokalna, bez żadnych zapytań sieciowych: https://claude.ai/artifact/Ean2k6GTQkXdqRTfrSiehU
+
+Co jest w środku
+
+Start: duży timer (15/25/45/60 min), a pod nim zadania posortowane od najbliższego terminu. Ukończona sesja daje EXP i monety.
+Zadania: nazwa, powtarzanie co X dni, atrybut, EXP i monety. Przycisk ✓ oznacza „Gotowe”.
+Sklep: nagrody za monety, które można kupić i „użyć”.
+Profil: atrybuty, osiągnięcia i kopia zapasowa przez eksport/import pliku JSON.
+Wygląd: jasny i ciemny motyw, poziom z paskiem EXP u góry.
+Jak przyjąłem Twoją logikę cykli (daj znać, jeśli ma być inaczej):
+
+Zadanie zrobione przed terminem znika do końca bieżącego okresu. Potem wraca jako aktywne z nowym terminem po kolejnych X dniach. Przykład: cykl 7 dni, zrobione w 3. dniu, wraca w 7. dniu z terminem na 14.
+Zadanie spóźnione pokazuje się na czerwono z czasem opóźnienia i nigdy się nie dubluje. Po kliknięciu ✓ nowy cykl liczy się od teraz, czyli od chwili zrobienia.
+Żeby dostać plik APK: ja go tu nie zbuduję, bo nie mam Android SDK. Najprostsza droga to Capacitor. Zapisz plik jako www/index.html, zainstaluj Node.js i Android Studio, a potem uruchom npm i @capacitor/core @capacitor/cli @capacitor/android, npx cap init, npx cap add android, npx cap sync. Na końcu w Android Studio wybierz Build → Build APK. Aplikacja nie ma uprawnienia do internetu, więc nic nie wyśle. Mogę przygotować pełny projekt Capacitor z ikoną, powiadomieniami o terminach i eksportem przez systemowy wybór pliku. W samym podglądzie przeglądarki pobieranie pliku z kopią może nie zadziałać.
+
+Zanim pójdę dalej, chętnie poznam Twoje zdanie:
+
+Czy atrybuty i nagrody w sklepie mają być edytowalne (dodawanie własnych)?
+Czy chcesz powiadomienia o zbliżającym się terminie?
+Czy zostawić polski interfejs i ten fioletowy styl?
+1 tak 2 tak 3 dodaj kilka różnych motywów, 4 dodatkowo - w oryginlnej apce jest więcej opcji przy zadaniach, np częstotliwość, po ilu zrobieniach zadanie nie będzie się powtarzało, kategorię (dzinne, sidequst czyli jeden raz, miesięczne, roczne, i zakończone zadanie może np dodać nagrodę lub dodać punkty do więcej niż jednego atrybutu) atrybuty też można dodawać i edytować,
+
+Gamefy – lokalne zadania z grywalizacją
+Artifact
+·Only you
+Zaktualizowałem podgląd pod tym samym adresem: https://claude.ai/artifact/Ean2k6GTQkXdqRTfrSiehU
+
+Aplikacja zapisuje dane w nowym miejscu, więc przykładowe zadania z poprzedniej wersji zobaczysz od nowa.
+
+Co się zmieniło
+
+Zadania: kategorie Dzienne, Tygodniowe, Miesięczne, Roczne i Sidequest. Pole „Co ile” ustawia częstotliwość, np. co 3 dni albo co 2 miesiące.
+Limit powtórzeń: po ostatnim wykonaniu zadanie znika, a Sidequest znika po jednym razie.
+Nagrody: zadanie może dać EXP, monety i punkty do kilku atrybutów naraz, a opcjonalnie też przedmiot ze sklepu.
+Edycja: kliknij nazwę zadania, żeby je zmienić lub usunąć. Termin jest opcjonalny.
+Atrybuty: w Profilu możesz dodawać je, zmieniać nazwę i ikonę oraz usuwać.
+Sklep: przycisk „Edytuj nagrody” pozwala zmieniać ikonę, nazwę i cenę oraz dodawać i usuwać nagrody.
+Motywy: Fiolet, Ocean, Las, Róża, Noc i AMOLED, do wyboru w Profilu.
+Powiadomienia: pojawiają się, gdy do terminu zostaje mniej niż doba i gdy zadanie jest spóźnione.
+Powiadomienia w APK: w przeglądarce działają tylko przy otwartej aplikacji. Żeby przychodziły też przy zamkniętej, w wersji APK trzeba dodać wtyczkę Capacitor Local Notifications. Zrobię to w projekcie do zbudowania APK.
+
+Mam jeszcze trzy pytania przed przygotowaniem projektu APK:
+
+Chcesz własną ikonę aplikacji, czy mam wygenerować prostą, np. fioletowy zegar z ptaszkiem?
+Czy nazwa „Rytm” może zostać?
+Czy przy spóźnionym zadaniu ma być kara, np. odjęcie monet, czy tylko oznaczenie na czerwono?
+1 ikona aplikacji to będzie uproszcona fioletowa ikonka pada do gry z literą G jak Gamefy i tak bym nazwała apke - od gameifikacji, 3 dodaj opcję przy dodawaniu zadania aby użytkownik sam wybrał czy chce być karany za opóźnienie lub całkowite pominięcie zadania i ile ta kara ma wynosić i czy wartość ma na przykład być randomowa w jakimś przediale monet, plus dodaj dodatkową nagrodę - np brylat czy kryształ za wbicie kolejnego poziomu dla dowolnego atrybutu (też można wydawać w sklepie, niektóre przedmioty będą wymagały albo monet albo kryształu albo tego i tego i np minimalnego poziomu któregoś z atrybutów) do sklepu dodaj możliwość dodania nie dużej grafiki i np linku (np Espress do Kawy - link do ekspresu do kawy + użytkownik dodaje swoje zdjęcie ale jak odblokuje zadanie może przez link od razu przejść do strony żeby coś tam sobie kupić, nie musi być to osobne pole, może być jakieś pole z opisem ale żeby użytkownik jeśli wkleji w opis link miał możliwość od razu przeniesienia się do przeglądarki ) tak samo zadania - żeby można było klinknąć w zadanie i zaraz pod nim mozna wejśc w opis, link lub czsomierz do zadania (czas zadania może ustawić użytkownik w dodawaniu zadania) a po kliknięciu w zadanie w polu start lub zadania edycja zadania była możliwa tylko jako przycisk i dpoiero wtedy można zadanie edyotwać - inaczej za łatwo coś zedytować przez przypadek. Jeszcze spoko dodać w zakładce zadania na samej górze kółko ustawień i np hurtowo zmień ustawienia zadań, tak żeby użytkownik wybrał wiele zadan i zmienił ich częstotliwość. Kolejna rzecz- nie widzę przy dodwaniu zadania opcji "Kategorię" lub foldery, fajnie byłoby coś takiego mieć, i koniecznie opcję "tagi" - kategori/foldery i tagi jakieś podstawowe wpisane przez program, ale tak żeby użytkownik gdzieś miał możliwość edycji, usuwania i dodawania własnych. Dodaj też poza terminem opcje "przypominajka" - to już jak uważasz, mogą być opcje typu "bez przypomnienia" "każdego dnia w trakcie 3 dni przed upływem terminu" "dzień przed końcem terminu" "każdego dnia gdy zadanie jest overdue" etc. Na razie dodaj te zmiany jeśli nie masz do nich pytań, jak masz pytania to wal zanim zaczniesz zmieniać pogląd - i rób to do każdej mojej odpowiedzi w tym czacie od tej wiadomośći.
+
+Kiedy naliczać karę za opóźnienie lub pominięcie zadania?
+gdy minie termin zadania odejmij karę i daj nagrodę jeśli zadanie zostało zrobione z opóźnieniem (użytkownik może sobie zaznaczyć że np każdy pominięty termin to będzie jakaś tam kara, lub jeśli zadanie zostanie skipnięte może być kara, w obu przypadkach użytkownik decyduje kiedy i jaka ta kara ma być przy zakładaniu zadania.)
+Kiedy link i opis nagrody w sklepie mają być klikalne?
+Dopiero po zakupie (odblokowaniu) nagrody
+Co ma się stać po zakończeniu odliczania czasomierza zadania?
+Tylko sygnał (wibracja i powiadomienie), zadanie zostaje
+Gamefy – lokalne zadania z grywalizacją
+Artifact
+·Only you
+Zaktualizowałem podgląd pod tym samym adresem, już jako Gamefy: https://claude.ai/artifact/Ean2k6GTQkXdqRTfrSiehU
+
+Nie uruchamiałem tego w przeglądarce, więc część rzeczy mogła mi się wymknąć. Dane są zapisane w nowym miejscu, więc zobaczysz świeże przykłady.
+
+Zadania
+
+Rozwijanie zadania: kliknięcie nazwy pokazuje opis z klikalnymi linkami, przycisk „Otwórz link” i czasomierz zadania. Po jego zakończeniu jest tylko wibracja i powiadomienie, a zadanie zostaje.
+Edycja: formularz otwiera się dopiero po przycisku ✏️ Edytuj w rozwiniętym zadaniu.
+Pomiń: drugi przycisk w rozwiniętym zadaniu. Przesuwa cykl bez nagrody.
+Foldery i tagi: każde zadanie ma jeden folder i dowolną liczbę tagów. Na liście działają filtry. Domyślne foldery i tagi możesz zmieniać, usuwać i dodawać w Profilu.
+Kółko ⚙️ na górze: włącza tryb zbiorczy. Zaznaczasz zadania i zmieniasz kategorię, częstotliwość, folder albo przypominajkę.
+Przypominajki: bez przypomnienia, w chwili terminu, dzień przed, codziennie przez 3 dni przed, codziennie po terminie albo 3 dni przed plus codziennie po.
+Kary
+
+Wybór przy zadaniu: bez kary, gdy minie termin, za każdy pominięty okres albo tylko przy „Pomiń”.
+Wysokość: stała albo losowa z przedziału monet.
+Spóźnione wykonanie: nagroda zostaje przyznana, a kara była już naliczona.
+Saldo: monety nie spadają poniżej zera.
+Kryształy i sklep
+
+Kryształy 💎: dostajesz 1 za każdy nowy poziom dowolnego atrybutu.
+Wymagania w sklepie: przedmiot może kosztować monety, kryształy albo oba naraz. Może też wymagać minimalnego poziomu wybranego atrybutu.
+Opis, link i zdjęcie: zdjęcie jest zmniejszane do miniatury. Opis z linkami odblokowuje się po zakupie.
+Czego nie ma:
+
+Ikona i nazwa APK: ikona (fioletowy pad z literą G) powstanie razem z projektem APK, bo w podglądzie jej nie widać.
+Zdjęcia przy zadaniach: nie dodałem ich, bo prosiłaś o nie tylko w sklepie.
+Przed projektem APK mam jedno pytanie: czy w sklepie ma być jeszcze cena „co miesiąc” albo limit zakupów (np. kawa maks. 2 razy dziennie), żeby nie dało się „kupić” nagrody bez końca?
+
+pozwól co miesiąc albo limit zakupów ustawić przy tworzeniu nagrody, ale tak, pozwól na ustawianie limitów
+
+Gamefy – lokalne zadania z grywalizacją
+Artifact
+·Only you
+Limity zakupów są już w podglądzie pod tym samym adresem: https://claude.ai/artifact/Ean2k6GTQkXdqRTfrSiehU
+
+Nie uruchamiałem tego w przeglądarce, więc ustawienia limitów warto sprawdzić.
+
+Gdzie ustawiasz: w Sklepie kliknij „Edytuj nagrody”, potem „Edytuj” przy nagrodzie. Są tam dwa pola: „Limit zakupów” i „Maks. razy”. Ustawisz je też od razu przy nowej nagrodzie.
+Rodzaje limitu: bez limitu, na dzień, na tydzień, na miesiąc albo łącznie.
+Tydzień: liczy się jako ostatnie 7 dni, a dzień i miesiąc jako kalendarzowe.
+W sklepie: karta pokazuje wykorzystanie, np. „Limit 1/2 na dzień”. Gdy limit jest wyczerpany, przycisk „Kup” robi się nieaktywny.
+Przykład: w nowych danych „Kawa” ma limit 2 na dzień.
+Stare nagrody: nagrody, które już masz zapisane w aplikacji, na razie nie mają limitu.
+Czy mam przejść do projektu APK z ikoną pada z literą G i nazwą Gamefy? Zbudujesz go u siebie w Android Studio, a dostaniesz ode mnie gotowe pliki i krótką instrukcję. Powiadomienia przy zamkniętej aplikacji dołożę wtyczką.
+
+spoko, może dobrze by mieć dodatkowo zakładkę "skrzynia" gdzie będą zakupione w sklepie przedmioty, plus te ikony trochę mi nie siedzą, możemy zrobić je w trochę bardziej "growym" stylu?
+
+Skrzynię dodam i przejdę potem do projektu APK. Zanim zmienię ikony, muszę doprecyzować trzy rzeczy:
+
+w takim stylu, wszystko tylko nie ikony wpisywane przez użytkownika, przedmioty z ilością i przycisk użyj  i miniaturę i tytuł i linikę opisu, kafelki
+
+Added to memory
+Gamefy – lokalne zadania z grywalizacją
+Artifact
+·Only you
+Dodałem Skrzynię i zmieniłem ikony. Podgląd jest pod tym samym adresem: https://claude.ai/artifact/Ean2k6GTQkXdqRTfrSiehU
+
+Nie uruchamiałem tego w przeglądarce, więc po otwarciu zwróć uwagę, czy ikony wyglądają tak jak chcesz.
+
+Skrzynia
+
+Jest nową zakładką w dolnym menu, między Sklepem a Profilem.
+Każdy przedmiot ma kafelek z miniaturą (albo ikoną), tytułem, jedną linijką opisu i plakietką z ilością, np. ×2.
+Przycisk „Użyj” zużywa jedną sztukę, a przy zerze kafelek znika.
+Trafiają tam przedmioty kupione w sklepie i nagrody za zadania.
+Ikony
+
+Odczytałem „w takim stylu” jako kolorowe odznaki, czyli zaokrąglone kafelki z połyskiem i białym symbolem w środku. Jeśli chodziło o inny styl, napisz.
+Nowy wygląd mają dolne menu, monety i kryształy w nagłówku, atrybuty, foldery i domyślne nagrody w sklepie, osiągnięcia oraz małe ikonki w wierszach zadań.
+Własne ikony wpisane przez Ciebie zostają emoji, ale też w kolorowym kafelku, żeby wyglądały spójnie.
+Jeśli przy atrybucie, folderze albo nagrodzie wpiszesz jedno z emoji używanych w domyślnych ikonach, np. 💪, ☕ albo 🎁, aplikacja pokaże odpowiednią odznakę zamiast emoji.
+Komunikaty na górze ekranu (np. o nagrodzie) zostają z emoji, bo tam nie da się wstawić grafiki.
+Przechodzę teraz do projektu APK z ikoną pada z literą G, chyba że chcesz najpierw coś poprawić w ikonach.
+
+1795123087379_image.png
+Added to memory
+Jak daleko ma sięgać styl z obrazka?
+Ikony, przyciski i paski postêpu (EXP, atrybuty)
+Co z motywami kolorystycznymi?
+Zostaw motywy kolorystyczne, pixel-art w ich kolorach
+Jaka czcionka?
+Pikselowa tylko w nagłówkach i na przyciskach
+Updated memory, ran a command, shared files
+Gamefy
+Code
+·HTML
+Continue
+
+Gamefy – lokalne zadania z grywalizacją
+Artifact
+·Only you
+Styl pixel-art jest już w podglądzie pod tym samym adresem: https://claude.ai/artifact/Ean2k6GTQkXdqRTfrSiehU
+
+Przy poprzedniej odpowiedzi zmiany były tylko w pliku, a podgląd opublikowałem dopiero teraz. Sprawdziłem tylko, że kod się wczytuje bez błędów, a wyglądu nie oglądałem. Pikselowe ikonki rysowałem ręcznie siatką 12×12, więc część może wymagać poprawek.
+
+Co się zmieniło
+
+Ikony: wszystkie domyślne ikony są teraz pikselowe, z ciemnym obrysem. Są to gwiazda, moneta, kryształ, serce, puchar, zegar, ptaszek, torba, skrzynia, hantle, książka, liść, paleta, tarcza, dom, teczka, kubek, film, sushi, słońce, prezent i zębatka.
+Własne ikony: jeśli wpiszesz własne emoji, zostaje ono jako emoji.
+Pasek EXP: ma białe tło z grubym obrysem, podzielone na segmenty wypełnienie w kolorze motywu i pikselową gwiazdkę z przodu. Takie same paski mają atrybuty w Profilu.
+Przyciski: są grube, z ciemnym obrysem i „wciśniętym” cieniem. Zielony przycisk ✓ przy zadaniach przypomina zielone guziki z obrazka.
+Motywy: wszystkie motywy kolorystyczne działają jak wcześniej.
+Czcionka: prawdziwej pikselowej czcionki nie dołączyłem, bo wymaga pliku z internetu, a aplikacja ma niczego nie pobierać. W nagłówkach i na przyciskach jest więc pogrubiona, wersalikowa czcionka techniczna. Prawdziwy font (np. Press Start 2P, wolna licencja) mogę dodać w projekcie APK jako lokalny plik. Pikselowe litery nie mają jednak polskich znaków, więc użyłbym go tylko w krótkich napisach.
+
+Czego nie ma: serc z obrazka (rzędu żyć) nie dodałem, bo ich nie zamawiałaś. Można je podpiąć pod kary, np. serce znika przy każdej spóźnionej karze.
+
+Czy mam teraz przygotować projekt APK z ikoną pada z literą G, bez serc?
+
+timer w starcie powinien mieć możliwość "custom" i tryb "tryb pomodoro" - w custom user sam określa sobie czas w hh-mm-ss, a w pomodoro leci tryb pomodoro i są przyciski stop/play, skim i ten kwadratowy na restart
+tagi zrobione tak jak teraz mogą za bardzo się rozrosnąć, coś innego zrób, bo jak użytkownik doda 60 tagów do zadania to nie będzie można zobaczyć zadań od razu po kliknięciu w zakładkę zadania - może jaki przycisk do filtrowania i szukania czy coś, jeśli chodzi o kategorie to zrób je tak jak standarowe taby w każdej wyszukiwarce, karty na górze strony i głowna strona ze wszystkimi zadaniami, tagi powinny być dodawane od razu w zadaniu i jeśli user cos zaczyna to wyszukuje mu słowa na podstawie tego co wpisuje i może wybrać pasujący tag jeśli ten istnieje, w profilu zrób po prostu opcje edycja tagów- i dopiero w niej szukaj i wszystkie możliwe tagi do edycji bo znowu - rozrośnie się i kicha, w sklepie nie pokazuj przycisku użyj tylko napisz "masz: 1" lub coś podobnego jak jest już w skrzynu, ikona koła zębatego do ustawień jest nie jasna, zrób coś z tym.
+
+Added to memory lifeup-app.md
+Paused: Your free usage returns at 7:30 PM. Continue then.
+
+You are out of free messages until 7:30 PM
+
+
+Claude is AI and can make mistakes. Please double-check responses.
+Claude finished the response
