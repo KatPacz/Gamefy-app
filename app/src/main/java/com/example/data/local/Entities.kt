@@ -42,6 +42,11 @@ data class PlayerProfileEntity(
   val onboardingTimePref: String? = null,
   val onboardingDetailPref: String? = null,
   val onboardingRewardPrefsCsv: String? = null,
+  val rsqBoardDayKey: Long = -1L,
+  val rsqBoardIdsCsv: String = "",
+  val rsqAcceptedIdsCsv: String = "",
+  val rsqAcceptedCountToday: Int = 0,
+  val lastBackupReminderTimestamp: Long = 0L,
 )
 
 @Entity(tableName = "attributes")

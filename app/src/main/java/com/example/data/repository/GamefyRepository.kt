@@ -47,12 +47,22 @@ import com.example.data.model.TaskCategory
 import com.example.data.model.buildSummaryNotificationText
 import com.example.data.model.calculateLevel
 import com.example.data.model.distributeWeightedExp
+import com.example.data.model.RANDOM_SIDE_QUEST_BOARD_SIZE
+import com.example.data.model.RANDOM_SIDE_QUEST_DAILY_LIMIT
+import com.example.data.model.RANDOM_SIDE_QUEST_TEMPLATES
+import com.example.data.model.RandomSideQuestBoardState
+import com.example.data.model.RandomSideQuestTemplate
 import com.example.data.model.formatDurationShort
+import com.example.data.model.formatRandomQuestTaskDescription
 import com.example.data.model.isTaskPreferredTimeReached
 import com.example.data.model.isWithinNotificationSchedule
+import com.example.data.model.localCalendarDayKey
 import com.example.data.model.localEpochDay
 import com.example.data.model.nextCycleTimestamp
 import com.example.data.model.parseAttributeWeightsJson
+import com.example.data.model.pickRandomSideQuests
+import com.example.data.model.resolveBoardTemplates
+import com.example.data.model.resolveDailyBoardIds
 import com.example.data.model.resolveGiveUpPenaltyRange
 import com.example.data.model.tasksPlannedForDay
 import com.example.data.model.toAttributeWeightsJson
@@ -79,6 +89,7 @@ data class RewardOutcome(
 class GamefyRepository(private val dao: GamefyDao) {
   private val completionMutex = Mutex()
   private val templateAddMutex = Mutex()
+  private val randomSideQuestMutex = Mutex()
 
   val profile: Flow<PlayerProfileEntity> =
     dao.observeProfile().map { it ?: PlayerProfileEntity() }
@@ -995,6 +1006,205 @@ class GamefyRepository(private val dao: GamefyDao) {
     true
   }
 
+  // --- Random Side Quest (Tablica Przygód) ---
+
+  suspend fun ensureDailyRandomSideQuestBoard(
+    nowMillis: Long = System.currentTimeMillis(),
+    catalog: List<RandomSideQuestTemplate> = RANDOM_SIDE_QUEST_TEMPLATES,
+    random: Random = Random.Default,
+  ): RandomSideQuestBoardState = randomSideQuestMutex.withLock {
+    val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+    val todayKey = localCalendarDayKey(nowMillis)
+
+    if (profile.rsqBoardDayKey != todayKey) {
+      val pickedIds = pickRandomSideQuests(
+        catalog = catalog,
+        count = RANDOM_SIDE_QUEST_BOARD_SIZE,
+        random = random,
+      ).map { it.id }
+      val updatedProfile = profile.copy(
+        rsqBoardDayKey = todayKey,
+        rsqBoardIdsCsv = pickedIds.joinToString(","),
+        rsqAcceptedIdsCsv = "",
+        rsqAcceptedCountToday = 0,
+      )
+      dao.upsertProfile(updatedProfile)
+      return@withLock RandomSideQuestBoardState(
+        dayKey = todayKey,
+        quests = resolveBoardTemplates(pickedIds, catalog),
+        acceptedIdsToday = emptySet(),
+        acceptedCountToday = 0,
+      )
+    }
+
+    val resolvedIds = resolveDailyBoardIds(
+      catalog = catalog,
+      savedIdsCsv = profile.rsqBoardIdsCsv,
+      count = RANDOM_SIDE_QUEST_BOARD_SIZE,
+      random = random,
+    )
+    val resolvedCsv = resolvedIds.joinToString(",")
+    if (resolvedCsv != profile.rsqBoardIdsCsv) {
+      dao.upsertProfile(profile.copy(rsqBoardIdsCsv = resolvedCsv))
+    }
+
+    val acceptedSet = parseStringCsv(profile.rsqAcceptedIdsCsv)
+    val acceptedCount = max(profile.rsqAcceptedCountToday, acceptedSet.size)
+      .coerceIn(0, RANDOM_SIDE_QUEST_DAILY_LIMIT)
+
+    RandomSideQuestBoardState(
+      dayKey = todayKey,
+      quests = resolveBoardTemplates(resolvedIds, catalog),
+      acceptedIdsToday = acceptedSet,
+      acceptedCountToday = acceptedCount,
+    )
+  }
+
+  suspend fun acceptRandomSideQuests(
+    questIds: List<String>,
+    nowMillis: Long = System.currentTimeMillis(),
+    catalog: List<RandomSideQuestTemplate> = RANDOM_SIDE_QUEST_TEMPLATES,
+    random: Random = Random.Default,
+  ): Int = randomSideQuestMutex.withLock {
+    if (questIds.isEmpty()) return@withLock 0
+
+    var profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+    val todayKey = localCalendarDayKey(nowMillis)
+
+    if (profile.rsqBoardDayKey != todayKey) {
+      val pickedIds = pickRandomSideQuests(
+        catalog = catalog,
+        count = RANDOM_SIDE_QUEST_BOARD_SIZE,
+        random = random,
+      ).map { it.id }
+      profile = profile.copy(
+        rsqBoardDayKey = todayKey,
+        rsqBoardIdsCsv = pickedIds.joinToString(","),
+        rsqAcceptedIdsCsv = "",
+        rsqAcceptedCountToday = 0,
+      )
+      dao.upsertProfile(profile)
+    }
+
+    val alreadyAcceptedSet = parseStringCsv(profile.rsqAcceptedIdsCsv)
+    val usedCount = max(profile.rsqAcceptedCountToday, alreadyAcceptedSet.size)
+      .coerceAtLeast(0)
+    val remainingSlots = (RANDOM_SIDE_QUEST_DAILY_LIMIT - usedCount).coerceAtLeast(0)
+    if (remainingSlots <= 0) return@withLock 0
+
+    val catalogById = catalog.associateBy { it.id }
+    val toAccept = questIds
+      .map { it.trim() }
+      .filter { it.isNotEmpty() && it !in alreadyAcceptedSet }
+      .distinct()
+      .mapNotNull { catalogById[it] }
+      .take(remainingSlots)
+
+    if (toAccept.isEmpty()) return@withLock 0
+
+    val folders = dao.getFoldersOnce()
+    val sideQuestFolderName = OnboardingArea.SIDE_QUESTS.folderName
+    val sideQuestFolderColor = defaultColorHexForFolder(sideQuestFolderName)
+    val sideQuestFolder = folders.find { it.name.equals(sideQuestFolderName, ignoreCase = true) }
+      ?: FolderEntity(
+        id = dao.insertFolder(
+          FolderEntity(
+            icon = OnboardingArea.SIDE_QUESTS.icon,
+            name = sideQuestFolderName,
+            colorHex = sideQuestFolderColor,
+          )
+        ),
+        icon = OnboardingArea.SIDE_QUESTS.icon,
+        name = sideQuestFolderName,
+        colorHex = sideQuestFolderColor,
+      )
+
+    val allAttrs = dao.getAttributesOnce()
+    val newlyAcceptedIds = mutableListOf<String>()
+
+    for (template in toAccept) {
+      val sourceKey = "rsq:${template.id}:$todayKey"
+      if (dao.getTaskBySourceTemplateId(sourceKey) != null) {
+        newlyAcceptedIds.add(template.id)
+        continue
+      }
+
+      val tagIds = template.tags.map { rawTag -> getOrCreateTag(rawTag).id }
+      val linkedAttrIds = template.attributeWeights.keys.mapNotNull { attrName ->
+        allAttrs.find { it.name.equals(attrName, ignoreCase = true) }?.id
+      }
+      val subtasks = template.subtasks.mapIndexed { idx, title ->
+        SubtaskItem(id = idx + 1L, title = title, isDone = false)
+      }
+
+      dao.insertTask(
+        TaskEntity(
+          name = "${template.emoji} ${template.title}",
+          description = formatRandomQuestTaskDescription(template),
+          folderId = sideQuestFolder.id,
+          tagIdsCsv = toIdCsv(tagIds),
+          categoryCode = TaskCategory.SIDEQUEST.code,
+          repeatInterval = 1,
+          repeatLimit = 0,
+          expReward = template.exp,
+          coinReward = template.coins,
+          attributeIdsCsv = toIdCsv(linkedAttrIds),
+          durationMinutes = template.estimatedMinutes,
+          reminderModeCode = ReminderMode.NONE.code,
+          penaltyModeCode = PenaltyMode.NONE.code,
+          penaltyMinCoins = 0,
+          penaltyMaxCoins = 0,
+          startTimestamp = nowMillis,
+          dueTimestamp = null,
+          subtasksJson = toSubtasksJson(subtasks),
+          difficultyCode = template.taskDifficulty.code,
+          gemReward = 0,
+          isActive = true,
+          sourceTemplateId = sourceKey,
+          attributeWeightsJson = toAttributeWeightsJson(template.attributeWeights),
+        )
+      )
+      newlyAcceptedIds.add(template.id)
+    }
+
+    if (newlyAcceptedIds.isNotEmpty()) {
+      val updatedAcceptedSet = alreadyAcceptedSet + newlyAcceptedIds
+      val updatedCount = (usedCount + newlyAcceptedIds.size).coerceAtMost(RANDOM_SIDE_QUEST_DAILY_LIMIT)
+      dao.upsertProfile(
+        profile.copy(
+          rsqBoardDayKey = todayKey,
+          rsqAcceptedIdsCsv = toStringCsv(updatedAcceptedSet),
+          rsqAcceptedCountToday = updatedCount,
+        )
+      )
+    }
+
+    newlyAcceptedIds.size
+  }
+
+  suspend fun checkAndPrepareWeeklyBackupReminder(
+    nowMillis: Long = System.currentTimeMillis(),
+  ): Boolean {
+    val profile = dao.getProfileOnce() ?: return false
+    if (!profile.onboardingCompleted) return false
+    if (profile.lastBackupReminderTimestamp <= 0L) {
+      dao.upsertProfile(profile.copy(lastBackupReminderTimestamp = nowMillis))
+      return false
+    }
+    return nowMillis - profile.lastBackupReminderTimestamp >= WEEKLY_BACKUP_REMINDER_INTERVAL_MS
+  }
+
+  suspend fun markBackupReminderAcknowledged(
+    nowMillis: Long = System.currentTimeMillis(),
+  ) {
+    val profile = dao.getProfileOnce() ?: return
+    dao.upsertProfile(profile.copy(lastBackupReminderTimestamp = nowMillis))
+  }
+
+  companion object {
+    const val WEEKLY_BACKUP_REMINDER_INTERVAL_MS: Long = 7L * MILLIS_PER_DAY
+  }
+
   suspend fun checkDueReminders(nowMillis: Long = System.currentTimeMillis()): List<Pair<Long, String>> {
     val profile = dao.getProfileOnce() ?: return emptyList()
     if (!profile.notificationsEnabled) return emptyList()
@@ -1201,6 +1411,11 @@ class GamefyRepository(private val dao: GamefyDao) {
           put("onboardingTimePref", profile.onboardingTimePref ?: JSONObject.NULL)
           put("onboardingDetailPref", profile.onboardingDetailPref ?: JSONObject.NULL)
           put("onboardingRewardPrefsCsv", profile.onboardingRewardPrefsCsv ?: JSONObject.NULL)
+          put("rsqBoardDayKey", profile.rsqBoardDayKey)
+          put("rsqBoardIdsCsv", profile.rsqBoardIdsCsv)
+          put("rsqAcceptedIdsCsv", profile.rsqAcceptedIdsCsv)
+          put("rsqAcceptedCountToday", profile.rsqAcceptedCountToday)
+          put("lastBackupReminderTimestamp", profile.lastBackupReminderTimestamp)
         },
       )
       put(
@@ -1376,6 +1591,11 @@ class GamefyRepository(private val dao: GamefyDao) {
         onboardingTimePref = if (pObj.isNull("onboardingTimePref")) null else pObj.optString("onboardingTimePref").ifBlank { null },
         onboardingDetailPref = if (pObj.isNull("onboardingDetailPref")) null else pObj.optString("onboardingDetailPref").ifBlank { null },
         onboardingRewardPrefsCsv = if (pObj.isNull("onboardingRewardPrefsCsv")) null else pObj.optString("onboardingRewardPrefsCsv").ifBlank { null },
+        rsqBoardDayKey = pObj.optLong("rsqBoardDayKey", -1L),
+        rsqBoardIdsCsv = pObj.optString("rsqBoardIdsCsv", ""),
+        rsqAcceptedIdsCsv = pObj.optString("rsqAcceptedIdsCsv", ""),
+        rsqAcceptedCountToday = pObj.optInt("rsqAcceptedCountToday", 0),
+        lastBackupReminderTimestamp = pObj.optLong("lastBackupReminderTimestamp", 0L),
       )
 
       val attrsArr = root.getJSONArray("attributes")

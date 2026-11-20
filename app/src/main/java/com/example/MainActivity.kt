@@ -6,8 +6,10 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -47,6 +49,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +59,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -71,10 +77,12 @@ import com.example.ui.components.AchievementPillBanner
 import com.example.ui.components.PixelIcon
 import com.example.ui.components.TopHudHeader
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.example.ui.screens.ChestScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.ProfileScreen
+import com.example.ui.screens.RandomSideQuestScreen
 import com.example.ui.screens.ReadyTasksDatabaseScreen
 import com.example.ui.screens.ShopScreen
 import com.example.ui.screens.TaskEditorScreen
@@ -90,6 +98,7 @@ private const val ROUTE_CHEST = "chest"
 private const val ROUTE_PROFILE = "profile"
 private const val ROUTE_TASK_EDIT = "task_edit/{taskId}"
 private const val ROUTE_READY_TASKS = "ready_tasks"
+private const val ROUTE_ADVENTURE_BOARD = "adventure_board"
 
 private data class NavTab(
   val route: String,
@@ -136,6 +145,9 @@ fun GamefyRootScreen(
   val uiState by viewModel.uiState.collectAsStateWithLifecycle()
   val mainTimer by viewModel.mainTimer.collectAsStateWithLifecycle()
   val taskTimer by viewModel.taskTimer.collectAsStateWithLifecycle()
+  val pendingRandomQuestIds by viewModel.pendingRandomQuestIds.collectAsStateWithLifecycle()
+  val isAcceptingRandomQuests by viewModel.isAcceptingRandomQuests.collectAsStateWithLifecycle()
+  val showWeeklyBackupReminder by viewModel.showWeeklyBackupReminder.collectAsStateWithLifecycle()
   val snackbarHostState = remember { SnackbarHostState() }
   val achievementQueue = remember { mutableStateListOf<AchievementDefinition>() }
   val currentAchievementBanner = achievementQueue.firstOrNull()
@@ -143,10 +155,46 @@ fun GamefyRootScreen(
   var openLibraryNonce by remember { mutableIntStateOf(0) }
   var pendingOpenTasksAfterOnboarding by remember { mutableStateOf(false) }
   var showExitTimerDialog by remember { mutableStateOf(false) }
-  var showRandomSideQuestDialog by remember { mutableStateOf(false) }
 
-  val activity = LocalContext.current as? Activity
+  val context = LocalContext.current
+  val activity = context as? Activity
+  val lifecycleOwner = LocalLifecycleOwner.current
+  val scope = rememberCoroutineScope()
   val anyTimerRunning = mainTimer.isRunning || taskTimer.isRunning
+
+  val quickBackupExportLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.CreateDocument("application/json"),
+  ) { uri ->
+    if (uri != null) {
+      scope.launch {
+        val json = viewModel.exportBackupJson()
+        val ok = runCatching {
+          context.contentResolver.openOutputStream(uri)?.use { stream ->
+            stream.write(json.toByteArray(Charsets.UTF_8))
+          } != null
+        }.getOrDefault(false)
+        viewModel.notifyBackupExportResult(ok)
+      }
+    }
+  }
+
+  LaunchedEffect(uiState.isLoaded, uiState.profile.onboardingCompleted) {
+    if (uiState.isLoaded && uiState.profile.onboardingCompleted) {
+      viewModel.checkWeeklyBackupReminder()
+    }
+  }
+
+  DisposableEffect(lifecycleOwner, uiState.isLoaded, uiState.profile.onboardingCompleted) {
+    val observer = LifecycleEventObserver { _, event ->
+      if (event == Lifecycle.Event.ON_RESUME && uiState.isLoaded && uiState.profile.onboardingCompleted) {
+        viewModel.checkWeeklyBackupReminder()
+      }
+    }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose {
+      lifecycleOwner.lifecycle.removeObserver(observer)
+    }
+  }
 
   DisposableEffect(anyTimerRunning, activity) {
     if (anyTimerRunning) {
@@ -418,7 +466,9 @@ fun GamefyRootScreen(
                 onResetTaskTimer = viewModel::resetTaskTimer,
                 onDismissFocusView = viewModel::dismissTaskFocusView,
                 onActivateTask = viewModel::activateLibraryTask,
-                onOpenRandomQuest = { showRandomSideQuestDialog = true },
+                onOpenRandomQuest = {
+                  navController.navigate(ROUTE_ADVENTURE_BOARD) { launchSingleTop = true }
+                },
                 openLibraryTrigger = openLibraryNonce,
               )
             }
@@ -461,7 +511,27 @@ fun GamefyRootScreen(
                 onExportBackup = viewModel::exportBackupJson,
                 onImportBackup = viewModel::importBackupJson,
                 onOpenReadyTasksDb = { navController.navigate(ROUTE_READY_TASKS) },
-                onOpenRandomQuest = { showRandomSideQuestDialog = true },
+                onOpenRandomQuest = {
+                  navController.navigate(ROUTE_ADVENTURE_BOARD) { launchSingleTop = true }
+                },
+              )
+            }
+
+            composable(ROUTE_ADVENTURE_BOARD) {
+              RandomSideQuestScreen(
+                profile = uiState.profile,
+                pendingSelectedIds = pendingRandomQuestIds,
+                isAccepting = isAcceptingRandomQuests,
+                onEnsureDailyBoard = viewModel::ensureDailyRandomSideQuestBoard,
+                onToggleSelect = viewModel::togglePendingRandomQuest,
+                onAcceptSelected = {
+                  viewModel.acceptSelectedRandomQuests { addedCount ->
+                    if (addedCount > 0) {
+                      navController.popBackStack(ROUTE_ADVENTURE_BOARD, inclusive = true)
+                    }
+                  }
+                },
+                onNavigateBack = { navController.popBackStack() },
               )
             }
 
@@ -540,17 +610,32 @@ fun GamefyRootScreen(
         )
       }
 
-      if (showRandomSideQuestDialog) {
+      if (showWeeklyBackupReminder) {
         AlertDialog(
-          onDismissRequest = { showRandomSideQuestDialog = false },
-          title = { Text("Random Side Quest") },
-          text = { Text("Sekcja gotowa do skonfigurowania.") },
+          onDismissRequest = { viewModel.dismissWeeklyBackupReminder() },
+          title = { Text("💾 Pamiętaj o kopii zapasowej") },
+          text = {
+            Text(
+              "Ta aplikacja nie ma automatycznej kopii zapasowej. Pamiętaj, żeby regularnie robić kopię zapasową (Profil → Ustawienia → Kopia zapasowa), aby nie stracić swoich postępów."
+            )
+          },
           confirmButton = {
             TextButton(
-              modifier = Modifier.testTag("close_random_side_quest_dialog"),
-              onClick = { showRandomSideQuestDialog = false },
+              modifier = Modifier.testTag("weekly_backup_export_now_button"),
+              onClick = {
+                viewModel.dismissWeeklyBackupReminder()
+                quickBackupExportLauncher.launch("gamefy-backup.json")
+              },
             ) {
-              Text("Zamknij")
+              Text("Zrób kopię teraz", fontWeight = FontWeight.Bold)
+            }
+          },
+          dismissButton = {
+            TextButton(
+              modifier = Modifier.testTag("weekly_backup_dismiss_button"),
+              onClick = { viewModel.dismissWeeklyBackupReminder() },
+            ) {
+              Text("OK, rozumiem")
             }
           },
         )

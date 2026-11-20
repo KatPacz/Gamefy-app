@@ -22,13 +22,19 @@ import com.example.data.model.OnboardingArea
 import com.example.data.model.OnboardingDetailPref
 import com.example.data.model.OnboardingRewardPref
 import com.example.data.model.OnboardingTimePref
+import com.example.data.model.PenaltyMode
+import com.example.data.model.RANDOM_SIDE_QUEST_TEMPLATES
 import com.example.data.model.READY_TASK_TEMPLATES
 import com.example.data.model.REWARD_CATALOG_TEMPLATES
 import com.example.data.model.ReminderMode
+import com.example.data.model.TaskCategory
 import com.example.data.model.localEpochDay
 import com.example.data.model.toNotificationSettings
 import com.example.data.repository.GamefyRepository
 import java.util.Calendar
+import kotlin.random.Random
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -991,6 +997,133 @@ class GamefyRepositoryTest {
     val restoredAfterLegacy = dao.getFoldersOnce()
     assertEquals("#F59E0B", restoredAfterLegacy.first { it.name == "Dom" }.colorHex)
     assertTrue(restoredAfterLegacy.all { it.colorHex.startsWith("#") && it.colorHex.length == 7 })
+  }
+
+  @Test
+  fun `random side quest board enforces daily limit non-refundable delete concurrency safety next-day reset and backup`() = runBlocking {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+
+    val day1 = Calendar.getInstance().apply {
+      set(2026, Calendar.NOVEMBER, 20, 10, 0, 0)
+      set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    val day2 = Calendar.getInstance().apply {
+      set(2026, Calendar.NOVEMBER, 21, 9, 0, 0)
+      set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    // 1. Opening board rolls 6 distinct quests and preserves exact order on revisit the same day
+    val board1 = repo.ensureDailyRandomSideQuestBoard(nowMillis = day1, random = Random(7))
+    assertEquals(6, board1.quests.size)
+    assertEquals(0, board1.acceptedCountToday)
+    assertEquals(3, board1.remainingSlots)
+
+    val board1Revisit = repo.ensureDailyRandomSideQuestBoard(nowMillis = day1 + 3600_000L, random = Random(999))
+    assertEquals(board1.quests.map { it.id }, board1Revisit.quests.map { it.id })
+
+    // 2. Accepting 2 quests adds 2 active SIDEQUEST tasks with 0 reward on accept and no forced deadline/penalty
+    val addedTwo = repo.acceptRandomSideQuests(listOf("rq_001", "rq_002"), nowMillis = day1)
+    assertEquals(2, addedTwo)
+
+    val profileAfterAccept = dao.getProfileOnce()!!
+    assertEquals(0, profileAfterAccept.coins)
+    assertEquals(0, profileAfterAccept.exp)
+    assertEquals(2, profileAfterAccept.rsqAcceptedCountToday)
+
+    val tasksAfterAccept = dao.getTasksOnce()
+    assertEquals(2, tasksAfterAccept.size)
+    assertTrue(tasksAfterAccept.all { it.isActive })
+    assertTrue(tasksAfterAccept.all { it.categoryCode == TaskCategory.SIDEQUEST.code })
+    assertTrue(tasksAfterAccept.all { it.dueTimestamp == null })
+    assertTrue(tasksAfterAccept.all { it.penaltyModeCode == PenaltyMode.NONE.code })
+    assertTrue(tasksAfterAccept.all { it.coinReward == 2 && it.expReward == 2 })
+
+    val sideQuestFolder = dao.getFoldersOnce().firstOrNull { it.name.equals("Side questy", ignoreCase = true) }
+    assertNotNull(sideQuestFolder)
+    assertTrue(tasksAfterAccept.all { it.folderId == sideQuestFolder!!.id })
+
+    // 3. Completing one accepted Side Quest awards coins + weighted EXP normally (rq_002: Dyscyplina 50%, Kreatywność 50% of 2 EXP = +1 each)
+    val rq002Task = tasksAfterAccept.first { it.name.contains("Minuta Proroka") }
+    repo.completeTask(rq002Task)
+    val attrsAfterComplete = dao.getAttributesOnce()
+    assertEquals(1, attrsAfterComplete.first { it.name == "Dyscyplina" }.exp)
+    assertEquals(1, attrsAfterComplete.first { it.name == "Kreatywność" }.exp)
+
+    // 4. Deleting the other accepted quest does NOT refund the daily slot
+    val rq001Task = dao.getTasksOnce().first { it.name.contains("Klątwa Zaginionej Skarpety") }
+    repo.deleteTask(rq001Task.id)
+    val boardAfterDelete = repo.ensureDailyRandomSideQuestBoard(nowMillis = day1 + 7200_000L)
+    assertEquals(2, boardAfterDelete.acceptedCountToday)
+    assertEquals(1, boardAfterDelete.remainingSlots)
+    assertTrue("rq_001" in boardAfterDelete.acceptedIdsToday)
+
+    // 5. Concurrent / double-click attempts trying to accept 2 more when only 1 slot remains add at most 1 total
+    val concurrentResults = listOf(
+      async { repo.acceptRandomSideQuests(listOf("rq_003", "rq_004"), nowMillis = day1 + 7300_000L) },
+      async { repo.acceptRandomSideQuests(listOf("rq_003", "rq_005"), nowMillis = day1 + 7300_000L) },
+    ).awaitAll()
+    assertEquals(1, concurrentResults.sum())
+
+    val boardLocked = repo.ensureDailyRandomSideQuestBoard(nowMillis = day1 + 7400_000L)
+    assertEquals(3, boardLocked.acceptedCountToday)
+    assertEquals(0, boardLocked.remainingSlots)
+    assertTrue(boardLocked.isDailyLimitReached)
+
+    // 6. Further acceptance on the same day is blocked
+    assertEquals(0, repo.acceptRandomSideQuests(listOf("rq_006"), nowMillis = day1 + 7500_000L))
+
+    // 7. JSON backup export/import preserves daily Random Side Quest state
+    val backupJson = repo.exportToJson()
+    dao.upsertProfile(dao.getProfileOnce()!!.copy(rsqBoardDayKey = -1L, rsqBoardIdsCsv = "", rsqAcceptedIdsCsv = "", rsqAcceptedCountToday = 0))
+    assertTrue(repo.importFromJson(backupJson))
+    val restoredProfile = dao.getProfileOnce()!!
+    assertEquals(3, restoredProfile.rsqAcceptedCountToday)
+    assertEquals(boardLocked.dayKey, restoredProfile.rsqBoardDayKey)
+
+    // 8. Next local calendar day resets daily limit to 0/3 and unlocks 3 fresh slots
+    val boardDay2 = repo.ensureDailyRandomSideQuestBoard(nowMillis = day2, random = Random(123))
+    assertEquals(6, boardDay2.quests.size)
+    assertEquals(0, boardDay2.acceptedCountToday)
+    assertEquals(3, boardDay2.remainingSlots)
+    assertFalse(boardDay2.isDailyLimitReached)
+    assertEquals(1, repo.acceptRandomSideQuests(listOf("rq_001"), nowMillis = day2))
+    assertEquals(RANDOM_SIDE_QUEST_TEMPLATES.size, 6)
+  }
+
+  @Test
+  fun `weekly backup reminder initializes baseline triggers after 7 days resets on acknowledge and survives backup`() = runBlocking {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+    val day0 = 1_763_640_000_000L
+
+    // During onboarding -> never shows and does not initialize timestamp prematurely
+    assertFalse(repo.checkAndPrepareWeeklyBackupReminder(nowMillis = day0))
+    assertEquals(0L, dao.getProfileOnce()!!.lastBackupReminderTimestamp)
+
+    // Complete onboarding -> first app launch records day0 baseline without nagging immediately
+    repo.completeOnboardingStartFromScratch()
+    assertFalse(repo.checkAndPrepareWeeklyBackupReminder(nowMillis = day0))
+    assertEquals(day0, dao.getProfileOnce()!!.lastBackupReminderTimestamp)
+
+    // 6 days later -> still not due
+    assertFalse(repo.checkAndPrepareWeeklyBackupReminder(nowMillis = day0 + 6L * MILLIS_PER_DAY))
+
+    // Exactly 7 days later -> reminder is due
+    val day7 = day0 + 7L * MILLIS_PER_DAY
+    assertTrue(repo.checkAndPrepareWeeklyBackupReminder(nowMillis = day7))
+
+    // User acknowledges/dismisses (or exports backup) -> silenced for another 7 days
+    repo.markBackupReminderAcknowledged(nowMillis = day7)
+    assertFalse(repo.checkAndPrepareWeeklyBackupReminder(nowMillis = day7 + 1_000L))
+    assertFalse(repo.checkAndPrepareWeeklyBackupReminder(nowMillis = day7 + 6L * MILLIS_PER_DAY))
+    assertTrue(repo.checkAndPrepareWeeklyBackupReminder(nowMillis = day7 + 7L * MILLIS_PER_DAY))
+
+    // Backup export/import preserves lastBackupReminderTimestamp
+    val json = repo.exportToJson()
+    dao.upsertProfile(dao.getProfileOnce()!!.copy(lastBackupReminderTimestamp = 0L))
+    assertTrue(repo.importFromJson(json))
+    assertEquals(day7, dao.getProfileOnce()!!.lastBackupReminderTimestamp)
   }
 }
 

@@ -14,6 +14,7 @@ import com.example.data.local.PlayerProfileEntity
 import com.example.data.local.ShopItemEntity
 import com.example.data.local.TagEntity
 import com.example.data.local.TaskEntity
+import com.example.data.local.parseStringCsv
 import com.example.data.model.AchievementDefinition
 import com.example.data.model.AppThemeId
 import com.example.data.model.NotificationSettings
@@ -21,10 +22,12 @@ import com.example.data.model.OnboardingArea
 import com.example.data.model.OnboardingDetailPref
 import com.example.data.model.OnboardingRewardPref
 import com.example.data.model.OnboardingTimePref
+import com.example.data.model.RANDOM_SIDE_QUEST_DAILY_LIMIT
 import com.example.data.model.ReadyTaskTemplate
 import com.example.data.model.ReminderMode
 import com.example.data.model.RewardCatalogTemplate
 import com.example.data.model.TaskCategory
+import com.example.data.model.localCalendarDayKey
 import com.example.data.repository.GamefyRepository
 import com.example.data.repository.RewardOutcome
 import com.example.notifications.NotificationHelper
@@ -137,6 +140,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   private val _achievementEvents = MutableSharedFlow<AchievementDefinition>(extraBufferCapacity = 16)
   val achievementEvents: SharedFlow<AchievementDefinition> = _achievementEvents.asSharedFlow()
+
+  private val _pendingRandomQuestIds = MutableStateFlow<Set<String>>(emptySet())
+  val pendingRandomQuestIds: StateFlow<Set<String>> = _pendingRandomQuestIds.asStateFlow()
+
+  private val _isAcceptingRandomQuests = MutableStateFlow(false)
+  val isAcceptingRandomQuests: StateFlow<Boolean> = _isAcceptingRandomQuests.asStateFlow()
+
+  private val _showWeeklyBackupReminder = MutableStateFlow(false)
+  val showWeeklyBackupReminder: StateFlow<Boolean> = _showWeeklyBackupReminder.asStateFlow()
+
+  private var pendingRandomQuestDayKey: Long = -1L
 
   private fun emitOutcome(outcome: RewardOutcome?) {
     if (outcome == null) return
@@ -625,7 +639,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
-  suspend fun exportBackupJson(): String = repository.exportToJson()
+  suspend fun exportBackupJson(): String {
+    repository.markBackupReminderAcknowledged()
+    _showWeeklyBackupReminder.value = false
+    return repository.exportToJson()
+  }
+
+  fun checkWeeklyBackupReminder() {
+    viewModelScope.launch {
+      if (repository.checkAndPrepareWeeklyBackupReminder()) {
+        _showWeeklyBackupReminder.value = true
+      }
+    }
+  }
+
+  fun dismissWeeklyBackupReminder() {
+    _showWeeklyBackupReminder.value = false
+    viewModelScope.launch {
+      repository.markBackupReminderAcknowledged()
+    }
+  }
+
+  fun notifyBackupExportResult(success: Boolean) {
+    _toastEvents.tryEmit(
+      if (success) "Kopia zapasowa została zapisana!" else "Nie udało się zapisać kopii zapasowej"
+    )
+  }
 
   fun importBackupJson(json: String) {
     viewModelScope.launch {
@@ -738,6 +777,83 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun setOnboardingDetailPref(detailPref: OnboardingDetailPref?) {
     viewModelScope.launch {
       repository.setOnboardingDetailPref(detailPref)
+    }
+  }
+
+  // --- Random Side Quest (Tablica Przygód) ---
+
+  fun ensureDailyRandomSideQuestBoard() {
+    viewModelScope.launch {
+      val board = repository.ensureDailyRandomSideQuestBoard()
+      if (pendingRandomQuestDayKey != board.dayKey) {
+        pendingRandomQuestDayKey = board.dayKey
+        _pendingRandomQuestIds.value = emptySet()
+      } else {
+        val validIds = board.quests.map { it.id }.toSet()
+        _pendingRandomQuestIds.update { current ->
+          current
+            .filter { it in validIds && it !in board.acceptedIdsToday }
+            .take(board.remainingSlots)
+            .toSet()
+        }
+      }
+    }
+  }
+
+  fun togglePendingRandomQuest(questId: String) {
+    val profile = uiState.value.profile
+    val todayKey = localCalendarDayKey()
+    val acceptedToday = if (profile.rsqBoardDayKey == todayKey) {
+      parseStringCsv(profile.rsqAcceptedIdsCsv)
+    } else {
+      emptySet()
+    }
+    val acceptedCount = if (profile.rsqBoardDayKey == todayKey) {
+      maxOf(profile.rsqAcceptedCountToday, acceptedToday.size)
+    } else {
+      0
+    }
+    if (questId in acceptedToday) return
+
+    if (pendingRandomQuestDayKey != todayKey) {
+      pendingRandomQuestDayKey = todayKey
+      _pendingRandomQuestIds.value = emptySet()
+    }
+
+    _pendingRandomQuestIds.update { current ->
+      if (questId in current) {
+        current - questId
+      } else {
+        val remaining = (RANDOM_SIDE_QUEST_DAILY_LIMIT - acceptedCount).coerceAtLeast(0)
+        if (current.size < remaining) current + questId else current
+      }
+    }
+  }
+
+  fun acceptSelectedRandomQuests(onAccepted: (Int) -> Unit = {}) {
+    if (_isAcceptingRandomQuests.value) return
+    val idsToAccept = _pendingRandomQuestIds.value.toList()
+    if (idsToAccept.isEmpty()) return
+
+    _isAcceptingRandomQuests.value = true
+    viewModelScope.launch {
+      try {
+        val addedCount = repository.acceptRandomSideQuests(idsToAccept)
+        _pendingRandomQuestIds.value = emptySet()
+        if (addedCount > 0) {
+          val missionLabel = when (addedCount) {
+            1 -> "1 misję"
+            2, 3, 4 -> "$addedCount misje"
+            else -> "$addedCount misji"
+          }
+          _toastEvents.tryEmit("⚔️ Przyjęto $missionLabel! Znajdziesz je w aktywnych zadaniach.")
+        } else {
+          _toastEvents.tryEmit("Dzienny limit Random Side Questów (3/3) został już wykorzystany.")
+        }
+        onAccepted(addedCount)
+      } finally {
+        _isAcceptingRandomQuests.value = false
+      }
     }
   }
 }
