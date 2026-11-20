@@ -13,12 +13,20 @@ import com.example.data.local.parseStringCsv
 import com.example.data.local.parseSubtasksJson
 import com.example.data.local.toSubtasksJson
 import com.example.data.model.MILLIS_PER_DAY
+import com.example.data.model.NotificationSettings
+import com.example.data.model.NotificationSummaryStyle
+import com.example.data.model.NotificationTimeSlot
+import com.example.data.model.NotificationTriggerMode
+import com.example.data.model.ReminderMode
 import com.example.data.model.localEpochDay
+import com.example.data.model.toNotificationSettings
 import com.example.data.repository.GamefyRepository
+import java.util.Calendar
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -282,5 +290,249 @@ class GamefyRepositoryTest {
     val profile = dao.getProfileOnce()!!
     assertEquals(65, profile.coins) // 50 task + 15 first_task achievement
     assertEquals(2, profile.gems)
+  }
+
+  @Test
+  fun `notification schedule blocks alerts outside configured days and time slots`() = runTest {
+    val dao = db.gamefyDao()
+    dao.upsertProfile(PlayerProfileEntity(id = 1L, notificationsEnabled = true))
+    repo.updateNotificationSettings(
+      NotificationSettings(
+        useTaskSettings = false,
+        daysOfWeek = setOf(1, 2, 3, 4, 5), // Mon-Fri only
+        allowAnytime = false,
+        timeSlots = setOf(NotificationTimeSlot.MORNING), // 08:00-11:00
+      )
+    )
+
+    fun calAt(dayOfWeek: Int, hour: Int, minute: Int): Long =
+      Calendar.getInstance().apply {
+        set(Calendar.YEAR, 2026)
+        set(Calendar.WEEK_OF_YEAR, 11)
+        set(Calendar.DAY_OF_WEEK, dayOfWeek)
+        set(Calendar.HOUR_OF_DAY, hour)
+        set(Calendar.MINUTE, minute)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+      }.timeInMillis
+
+    val mondayMorning = calAt(Calendar.MONDAY, 9, 30)
+    val mondayAfternoon = calAt(Calendar.MONDAY, 14, 30)
+    val saturdayMorning = calAt(Calendar.SATURDAY, 9, 30)
+
+    dao.insertTask(
+      TaskEntity(
+        name = "Poranne zadanie",
+        categoryCode = "d",
+        reminderModeCode = ReminderMode.DAY_BEFORE.code,
+        startTimestamp = mondayMorning - 3600_000L,
+        dueTimestamp = mondayMorning + 3600_000L,
+      )
+    )
+
+    assertTrue(repo.checkDueReminders(mondayAfternoon).isEmpty())
+    assertTrue(repo.checkDueReminders(saturdayMorning).isEmpty())
+    val fired = repo.checkDueReminders(mondayMorning)
+    assertEquals(1, fired.size)
+  }
+
+  @Test
+  fun `only finishing trigger ignores distant reminders and fires near deadline`() = runTest {
+    val dao = db.gamefyDao()
+    dao.upsertProfile(PlayerProfileEntity(id = 1L, notificationsEnabled = true))
+    repo.updateNotificationSettings(
+      NotificationSettings(
+        useTaskSettings = false,
+        allowAnytime = true,
+        triggerMode = NotificationTriggerMode.ONLY_FINISHING,
+      )
+    )
+    val now = System.currentTimeMillis()
+    dao.insertTask(
+      TaskEntity(
+        name = "Jeszcze dużo czasu",
+        categoryCode = "o",
+        reminderModeCode = ReminderMode.DAY_BEFORE.code,
+        startTimestamp = now - 3600_000L,
+        dueTimestamp = now + 20 * 3600_000L,
+      )
+    )
+    dao.insertTask(
+      TaskEntity(
+        name = "Zaraz koniec",
+        categoryCode = "o",
+        reminderModeCode = ReminderMode.NONE.code,
+        startTimestamp = now - 3600_000L,
+        dueTimestamp = now + 3600_000L,
+      )
+    )
+
+    val alerts = repo.checkDueReminders(now)
+    assertEquals(1, alerts.size)
+    assertTrue(alerts.first().second.contains("Zaraz koniec"))
+  }
+
+  @Test
+  fun `daily notification cap consolidates multiple tasks into digest and blocks excess`() = runTest {
+    val dao = db.gamefyDao()
+    dao.upsertProfile(PlayerProfileEntity(id = 1L, notificationsEnabled = true))
+    repo.updateNotificationSettings(
+      NotificationSettings(
+        allowAnytime = true,
+        triggerMode = NotificationTriggerMode.WITH_REMINDER,
+        maxPerDay = 1,
+        summaryStyle = NotificationSummaryStyle.DETAILED_DIGEST,
+      )
+    )
+    val now = Calendar.getInstance().apply {
+      set(Calendar.HOUR_OF_DAY, 10)
+      set(Calendar.MINUTE, 0)
+      set(Calendar.SECOND, 0)
+      set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    dao.insertTask(
+      TaskEntity(
+        name = "Zadanie 1",
+        categoryCode = "d",
+        durationMinutes = 30,
+        reminderModeCode = ReminderMode.DAY_BEFORE.code,
+        startTimestamp = now - 3600_000L,
+        dueTimestamp = now + 2 * 3600_000L,
+      )
+    )
+    dao.insertTask(
+      TaskEntity(
+        name = "Zadanie 2",
+        categoryCode = "d",
+        durationMinutes = 45,
+        reminderModeCode = ReminderMode.DAY_BEFORE.code,
+        startTimestamp = now - 3600_000L,
+        dueTimestamp = now + 3 * 3600_000L,
+      )
+    )
+
+    val firstAlerts = repo.checkDueReminders(now)
+    assertEquals(1, firstAlerts.size)
+    assertTrue(firstAlerts.first().second.contains("2 zadania"))
+    assertTrue(firstAlerts.first().second.contains("1 h 15 min"))
+
+    // Second check on the same day is blocked by daily cap = 1
+    val secondAlerts = repo.checkDueReminders(now + 60_000L)
+    assertTrue(secondAlerts.isEmpty())
+
+    // Backup round-trip preserves notification settings
+    val json = repo.exportToJson()
+    repo.updateNotificationSettings(NotificationSettings(maxPerDay = 0))
+    assertTrue(repo.importFromJson(json))
+    val restored = dao.getProfileOnce()!!.toNotificationSettings()
+    assertEquals(1, restored.maxPerDay)
+    assertEquals(NotificationSummaryStyle.DETAILED_DIGEST, restored.summaryStyle)
+  }
+
+  @Test
+  fun `default per-task mode respects task preferred reminder hour and ignores NONE reminder`() = runTest {
+    val dao = db.gamefyDao()
+    dao.upsertProfile(PlayerProfileEntity(id = 1L, notificationsEnabled = true))
+    assertTrue(dao.getProfileOnce()!!.notifUseTaskSettings)
+
+    val morningTen = Calendar.getInstance().apply {
+      set(Calendar.YEAR, 2026)
+      set(Calendar.MONTH, Calendar.MARCH)
+      set(Calendar.DAY_OF_MONTH, 10)
+      set(Calendar.HOUR_OF_DAY, 10)
+      set(Calendar.MINUTE, 0)
+      set(Calendar.SECOND, 0)
+      set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    val afternoonTwoThirty = morningTen + 4 * 3600_000L + 30 * 60_000L // 14:30
+
+    dao.insertTask(
+      TaskEntity(
+        name = "Wyłączone w zadaniu",
+        categoryCode = "d",
+        reminderModeCode = ReminderMode.NONE.code,
+        preferredReminderHour = 9,
+        preferredReminderMinute = 0,
+        startTimestamp = morningTen - 3600_000L,
+        dueTimestamp = morningTen + 10 * 3600_000L,
+      )
+    )
+    dao.insertTask(
+      TaskEntity(
+        name = "O 14:30",
+        categoryCode = "d",
+        reminderModeCode = ReminderMode.DAY_BEFORE.code,
+        preferredReminderHour = 14,
+        preferredReminderMinute = 30,
+        startTimestamp = morningTen - 3600_000L,
+        dueTimestamp = morningTen + 12 * 3600_000L,
+      )
+    )
+
+    // At 10:00 neither fires (first is NONE, second waits until 14:30)
+    assertTrue(repo.checkDueReminders(morningTen).isEmpty())
+
+    // At 14:30 the second task fires
+    val fired = repo.checkDueReminders(afternoonTwoThirty)
+    assertEquals(1, fired.size)
+    assertTrue(fired.first().second.contains("O 14:30"))
+  }
+
+  @Test
+  fun `unchecking useTaskSettings enforces global schedule and ignores task reminders`() = runTest {
+    val dao = db.gamefyDao()
+    dao.upsertProfile(PlayerProfileEntity(id = 1L, notificationsEnabled = true))
+    repo.updateNotificationSettings(
+      NotificationSettings(
+        useTaskSettings = false, // user unchecked "Zależne od zadania"
+        daysOfWeek = setOf(1, 2, 3, 4, 5, 6, 7),
+        allowAnytime = false,
+        timeSlots = setOf(NotificationTimeSlot.EVENING), // 19:00-22:00 only
+        triggerMode = NotificationTriggerMode.WITH_REMINDER,
+      )
+    )
+    assertFalse(dao.getProfileOnce()!!.notifUseTaskSettings)
+
+    val morningEightThirty = Calendar.getInstance().apply {
+      set(Calendar.YEAR, 2026)
+      set(Calendar.MONTH, Calendar.MARCH)
+      set(Calendar.DAY_OF_MONTH, 10)
+      set(Calendar.HOUR_OF_DAY, 8)
+      set(Calendar.MINUTE, 30)
+      set(Calendar.SECOND, 0)
+      set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    val eveningEight = morningEightThirty + 11 * 3600_000L + 30 * 60_000L // 20:00
+
+    // Task explicitly set to NONE and 08:00 — global forced mode ignores both!
+    dao.insertTask(
+      TaskEntity(
+        name = "Ignoruj ustawienia zadania",
+        categoryCode = "d",
+        reminderModeCode = ReminderMode.NONE.code,
+        preferredReminderHour = 8,
+        preferredReminderMinute = 0,
+        startTimestamp = morningEightThirty - 3600_000L,
+        dueTimestamp = eveningEight + 2 * 3600_000L,
+      )
+    )
+
+    // 08:30 blocked because global schedule requires EVENING (19:00-22:00)
+    assertTrue(repo.checkDueReminders(morningEightThirty).isEmpty())
+
+    // 20:00 fires even though task had ReminderMode.NONE!
+    val eveningAlerts = repo.checkDueReminders(eveningEight)
+    assertEquals(1, eveningAlerts.size)
+    assertTrue(eveningAlerts.first().second.contains("Ignoruj ustawienia zadania"))
+
+    // Export/import round-trip preserves preferredReminderHour/Minute and notifUseTaskSettings=false
+    val json = repo.exportToJson()
+    repo.updateNotificationSettings(NotificationSettings(useTaskSettings = true))
+    assertTrue(repo.importFromJson(json))
+    assertFalse(dao.getProfileOnce()!!.notifUseTaskSettings)
+    val restoredTask = dao.getTasksOnce().first { it.name == "Ignoruj ustawienia zadania" }
+    assertEquals(8, restoredTask.preferredReminderHour)
+    assertEquals(0, restoredTask.preferredReminderMinute)
   }
 }

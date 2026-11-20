@@ -22,15 +22,24 @@ import com.example.data.model.AchievementDefinition
 import com.example.data.model.AppThemeId
 import com.example.data.model.GAMEFY_ACHIEVEMENTS
 import com.example.data.model.MILLIS_PER_DAY
+import com.example.data.model.MILLIS_PER_HOUR
+import com.example.data.model.NotificationSettings
+import com.example.data.model.NotificationTriggerMode
 import com.example.data.model.PenaltyMode
 import com.example.data.model.PlayerStatsSnapshot
 import com.example.data.model.PurchaseLimitPeriod
 import com.example.data.model.ReminderMode
 import com.example.data.model.TaskCategory
+import com.example.data.model.buildSummaryNotificationText
 import com.example.data.model.calculateLevel
 import com.example.data.model.formatDurationShort
+import com.example.data.model.isTaskPreferredTimeReached
+import com.example.data.model.isWithinNotificationSchedule
 import com.example.data.model.localEpochDay
 import com.example.data.model.nextCycleTimestamp
+import com.example.data.model.tasksPlannedForDay
+import com.example.data.model.toNotificationSettings
+import com.example.data.model.withNotificationSettings
 import java.io.ByteArrayOutputStream
 import java.util.Calendar
 import kotlin.math.max
@@ -536,47 +545,148 @@ class GamefyRepository(private val dao: GamefyDao) {
     dao.upsertProfile(profile.copy(notificationsEnabled = enabled))
   }
 
-  suspend fun checkDueReminders(): List<Pair<Long, String>> {
+  suspend fun updateNotificationSettings(settings: NotificationSettings) {
+    val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+    dao.upsertProfile(profile.withNotificationSettings(settings))
+  }
+
+  suspend fun checkDueReminders(nowMillis: Long = System.currentTimeMillis()): List<Pair<Long, String>> {
     val profile = dao.getProfileOnce() ?: return emptyList()
     if (!profile.notificationsEnabled) return emptyList()
 
-    val now = System.currentTimeMillis()
-    val dayBucket = now / MILLIS_PER_DAY
+    val settings = profile.toNotificationSettings()
+    val todayEpoch = localEpochDay(nowMillis)
+    val sentToday = if (profile.notifSentEpochDay == todayEpoch) profile.notifSentCountToday else 0
+    val maxPerDay = settings.maxPerDay
+    if (maxPerDay > 0 && sentToday >= maxPerDay) return emptyList()
+    val remainingQuota = if (maxPerDay > 0) maxPerDay - sentToday else Int.MAX_VALUE
+
+    val dayBucket = todayEpoch
     val tasks = dao.getTasksOnce()
-    val alerts = mutableListOf<Pair<Long, String>>()
+    val candidateAlerts = mutableListOf<Triple<TaskEntity, String, String>>()
 
-    for (task in tasks) {
-      if (task.startTimestamp > now) continue
-      val due = task.dueTimestamp ?: continue
-      val mode = ReminderMode.fromCode(task.reminderModeCode)
-      if (mode == ReminderMode.NONE) continue
+    if (!settings.useTaskSettings) {
+      // Forced global mode: enforce global schedule and ignore per-task reminder & preferred hour
+      if (!isWithinNotificationSchedule(settings, nowMillis)) return emptyList()
 
-      val remaining = due - now
-      val key = when (mode) {
-        ReminderMode.NONE -> null
-        ReminderMode.AT_DUE -> if (remaining <= 0L) "a_$due" else null
-        ReminderMode.DAY_BEFORE -> if (remaining in 1L until MILLIS_PER_DAY) "b_$due" else null
-        ReminderMode.THREE_DAYS_BEFORE ->
-          if (remaining in 1L until 3 * MILLIS_PER_DAY) "c_$dayBucket" else null
-        ReminderMode.DAILY_OVERDUE -> if (remaining < 0L) "o_$dayBucket" else null
-        ReminderMode.THREE_DAYS_AND_OVERDUE -> when {
-          remaining in 1L until 3 * MILLIS_PER_DAY -> "c_$dayBucket"
-          remaining < 0L -> "o_$dayBucket"
-          else -> null
+      val plannedTodayIds = tasksPlannedForDay(tasks, nowMillis).map { it.id }.toSet()
+      for (task in tasks) {
+        if (task.startTimestamp > nowMillis) continue
+        val due = task.dueTimestamp
+        val remaining = if (due != null) due - nowMillis else Long.MAX_VALUE
+        val isEndingSoon = due != null && remaining in -MILLIS_PER_DAY..(2 * MILLIS_PER_HOUR)
+        val isPlannedToday = task.id in plannedTodayIds
+
+        val endingKey = if (isEndingSoon) "g_end_${dayBucket}_$due" else null
+        val globalReminderKey = if (isPlannedToday) "g_rem_$dayBucket" else null
+        val chosenKey = when (settings.triggerMode) {
+          NotificationTriggerMode.WITH_REMINDER -> globalReminderKey
+          NotificationTriggerMode.ONLY_FINISHING -> endingKey
+          NotificationTriggerMode.BOTH -> endingKey ?: globalReminderKey
+        }
+
+        if (chosenKey != null && task.lastNotifiedKey != chosenKey) {
+          val text = when {
+            due != null && remaining < 0L -> "Spóźnione (${formatDurationShort(remaining)}): ${task.name}"
+            due != null -> "Termin za ${formatDurationShort(remaining)}: ${task.name}"
+            else -> "Zadanie na dziś: ${task.name}"
+          }
+          candidateAlerts.add(Triple(task, chosenKey, text))
         }
       }
+    } else {
+      // Per-task mode (default): each task uses its own reminderModeCode & preferredReminderHour/Minute
+      for (task in tasks) {
+        if (task.startTimestamp > nowMillis) continue
+        val mode = ReminderMode.fromCode(task.reminderModeCode)
+        if (mode == ReminderMode.NONE) continue
+        if (!isTaskPreferredTimeReached(task, nowMillis)) continue
 
-      if (key != null && task.lastNotifiedKey != key) {
-        dao.updateTask(task.copy(lastNotifiedKey = key))
-        val text = if (remaining < 0L) {
-          "Spóźnione (${formatDurationShort(remaining)}): ${task.name}"
-        } else {
-          "Termin za ${formatDurationShort(remaining)}: ${task.name}"
+        val due = task.dueTimestamp
+        val prefSuffix = "${task.preferredReminderHour}_${task.preferredReminderMinute}"
+
+        if (due == null) {
+          if (task.preferredReminderHour >= 0) {
+            val chosenKey = "t_pref_${dayBucket}_$prefSuffix"
+            if (task.lastNotifiedKey != chosenKey) {
+              candidateAlerts.add(Triple(task, chosenKey, "Przypomnienie: ${task.name}"))
+            }
+          }
+          continue
         }
-        alerts.add(task.id to text)
+
+        val remaining = due - nowMillis
+        val dueEpoch = localEpochDay(due)
+        val hasPref = task.preferredReminderHour >= 0
+
+        val chosenKey = when (mode) {
+          ReminderMode.NONE -> null
+          ReminderMode.AT_DUE ->
+            if (remaining <= 0L || (hasPref && dueEpoch == dayBucket)) "a_${due}_$prefSuffix" else null
+          ReminderMode.DAY_BEFORE ->
+            if (remaining in 1L until MILLIS_PER_DAY || (hasPref && dueEpoch == dayBucket + 1L)) {
+              "b_${due}_$prefSuffix"
+            } else null
+          ReminderMode.THREE_DAYS_BEFORE ->
+            if (remaining in 1L until 3 * MILLIS_PER_DAY || (hasPref && dueEpoch in (dayBucket + 1L)..(dayBucket + 3L))) {
+              "c_${dayBucket}_$prefSuffix"
+            } else null
+          ReminderMode.DAILY_OVERDUE ->
+            if (remaining < 0L) "o_${dayBucket}_$prefSuffix" else null
+          ReminderMode.THREE_DAYS_AND_OVERDUE -> when {
+            remaining in 1L until 3 * MILLIS_PER_DAY || (hasPref && dueEpoch in (dayBucket + 1L)..(dayBucket + 3L)) ->
+              "c_${dayBucket}_$prefSuffix"
+            remaining < 0L -> "o_${dayBucket}_$prefSuffix"
+            else -> null
+          }
+        }
+
+        if (chosenKey != null && task.lastNotifiedKey != chosenKey) {
+          val text = if (remaining < 0L) {
+            "Spóźnione (${formatDurationShort(remaining)}): ${task.name}"
+          } else {
+            "Termin za ${formatDurationShort(remaining)}: ${task.name}"
+          }
+          candidateAlerts.add(Triple(task, chosenKey, text))
+        }
       }
     }
-    return alerts
+
+    val finalAlerts = mutableListOf<Pair<Long, String>>()
+    if (maxPerDay > 0 && (candidateAlerts.size > remainingQuota || (maxPerDay == 1 && candidateAlerts.isNotEmpty()))) {
+      val plannedToday = tasksPlannedForDay(tasks, nowMillis)
+      val summaryTarget = if (plannedToday.isNotEmpty()) plannedToday else candidateAlerts.map { it.first }
+      val summaryMsg = buildSummaryNotificationText(summaryTarget, settings.summaryStyle)
+      val leadTaskId = candidateAlerts.first().first.id
+      candidateAlerts.forEach { (task, key, _) ->
+        dao.updateTask(task.copy(lastNotifiedKey = key))
+      }
+      finalAlerts.add(leadTaskId to summaryMsg)
+    } else if (!settings.useTaskSettings && maxPerDay == 1 && candidateAlerts.isEmpty() && sentToday == 0) {
+      if (settings.triggerMode != NotificationTriggerMode.ONLY_FINISHING) {
+        val plannedToday = tasksPlannedForDay(tasks, nowMillis)
+        if (plannedToday.isNotEmpty()) {
+          val summaryMsg = buildSummaryNotificationText(plannedToday, settings.summaryStyle)
+          finalAlerts.add(plannedToday.first().id to summaryMsg)
+        }
+      }
+    } else {
+      val allowed = candidateAlerts.take(remainingQuota)
+      allowed.forEach { (task, key, msg) ->
+        dao.updateTask(task.copy(lastNotifiedKey = key))
+        finalAlerts.add(task.id to msg)
+      }
+    }
+
+    if (finalAlerts.isNotEmpty()) {
+      dao.upsertProfile(
+        profile.copy(
+          notifSentCountToday = sentToday + finalAlerts.size,
+          notifSentEpochDay = todayEpoch,
+        )
+      )
+    }
+    return finalAlerts
   }
 
   suspend fun compressImageUriToDataUrl(context: Context, uri: Uri): String? =
@@ -628,6 +738,18 @@ class GamefyRepository(private val dao: GamefyDao) {
           put("boughtMostExpensive", profile.boughtMostExpensive)
           put("completedNightAction", profile.completedNightAction)
           put("completedSubtaskChain", profile.completedSubtaskChain)
+          put("notifDaysCsv", profile.notifDaysCsv)
+          put("notifSlotsCsv", profile.notifSlotsCsv)
+          put("notifCustomStartHour", profile.notifCustomStartHour)
+          put("notifCustomStartMinute", profile.notifCustomStartMinute)
+          put("notifCustomEndHour", profile.notifCustomEndHour)
+          put("notifCustomEndMinute", profile.notifCustomEndMinute)
+          put("notifTriggerModeCode", profile.notifTriggerModeCode)
+          put("notifMaxPerDay", profile.notifMaxPerDay)
+          put("notifSummaryStyleCode", profile.notifSummaryStyleCode)
+          put("notifUseTaskSettings", profile.notifUseTaskSettings)
+          put("notifSentCountToday", profile.notifSentCountToday)
+          put("notifSentEpochDay", profile.notifSentEpochDay)
         },
       )
       put(
@@ -695,6 +817,8 @@ class GamefyRepository(private val dao: GamefyDao) {
               put("subtasksJson", t.subtasksJson)
               put("difficultyCode", t.difficultyCode)
               put("gemReward", t.gemReward)
+              put("preferredReminderHour", t.preferredReminderHour)
+              put("preferredReminderMinute", t.preferredReminderMinute)
             })
           }
         },
@@ -748,6 +872,18 @@ class GamefyRepository(private val dao: GamefyDao) {
         boughtMostExpensive = pObj.optBoolean("boughtMostExpensive", false),
         completedNightAction = pObj.optBoolean("completedNightAction", false),
         completedSubtaskChain = pObj.optBoolean("completedSubtaskChain", false),
+        notifDaysCsv = pObj.optString("notifDaysCsv", "1,2,3,4,5,6,7"),
+        notifSlotsCsv = pObj.optString("notifSlotsCsv", "any"),
+        notifCustomStartHour = pObj.optInt("notifCustomStartHour", 9),
+        notifCustomStartMinute = pObj.optInt("notifCustomStartMinute", 0),
+        notifCustomEndHour = pObj.optInt("notifCustomEndHour", 21),
+        notifCustomEndMinute = pObj.optInt("notifCustomEndMinute", 0),
+        notifTriggerModeCode = pObj.optString("notifTriggerModeCode", "reminder"),
+        notifMaxPerDay = pObj.optInt("notifMaxPerDay", 0),
+        notifSummaryStyleCode = pObj.optString("notifSummaryStyleCode", "digest"),
+        notifUseTaskSettings = pObj.optBoolean("notifUseTaskSettings", true),
+        notifSentCountToday = pObj.optInt("notifSentCountToday", 0),
+        notifSentEpochDay = pObj.optLong("notifSentEpochDay", -1L),
       )
 
       val attrsArr = root.getJSONArray("attributes")
@@ -809,6 +945,8 @@ class GamefyRepository(private val dao: GamefyDao) {
           subtasksJson = o.optString("subtasksJson", "[]"),
           difficultyCode = o.optString("difficultyCode", "m"),
           gemReward = o.optInt("gemReward", 0),
+          preferredReminderHour = o.optInt("preferredReminderHour", -1),
+          preferredReminderMinute = o.optInt("preferredReminderMinute", 0),
         )
       }
 

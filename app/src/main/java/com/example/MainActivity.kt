@@ -1,6 +1,7 @@
 package com.example
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -64,6 +65,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.data.model.AchievementDefinition
+import com.example.notifications.NotificationHelper
 import com.example.ui.MainViewModel
 import com.example.ui.components.AchievementPillBanner
 import com.example.ui.components.PixelIcon
@@ -101,18 +103,32 @@ private val NAV_TABS = listOf(
 )
 
 class MainActivity : ComponentActivity() {
+  private var requestedRouteState by mutableStateOf<String?>(null)
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    requestedRouteState = intent?.getStringExtra(NotificationHelper.EXTRA_TARGET_ROUTE)
     enableEdgeToEdge()
     setContent {
-      GamefyRootScreen()
+      GamefyRootScreen(
+        requestedRoute = requestedRouteState,
+        onConsumeRequestedRoute = { requestedRouteState = null },
+      )
     }
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    requestedRouteState = intent.getStringExtra(NotificationHelper.EXTRA_TARGET_ROUTE)
   }
 }
 
 @Composable
 fun GamefyRootScreen(
   viewModel: MainViewModel = viewModel(),
+  requestedRoute: String? = null,
+  onConsumeRequestedRoute: () -> Unit = {},
 ) {
   val uiState by viewModel.uiState.collectAsStateWithLifecycle()
   val mainTimer by viewModel.mainTimer.collectAsStateWithLifecycle()
@@ -165,6 +181,19 @@ fun GamefyRootScreen(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: ROUTE_START
     val isTopTab = NAV_TABS.any { it.route == currentRoute }
+
+    LaunchedEffect(requestedRoute, uiState.isLoaded) {
+      if (uiState.isLoaded && requestedRoute == ROUTE_TASKS) {
+        if (currentRoute != ROUTE_TASKS) {
+          navController.navigate(ROUTE_TASKS) {
+            popUpTo(ROUTE_START) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+          }
+        }
+        onConsumeRequestedRoute()
+      }
+    }
 
     if (!uiState.isLoaded) {
       Box(
@@ -376,6 +405,7 @@ fun GamefyRootScreen(
                 onDeleteTag = viewModel::deleteTag,
                 onSelectTheme = viewModel::setTheme,
                 onToggleNotifications = viewModel::setNotificationsEnabled,
+                onUpdateNotificationSettings = viewModel::updateNotificationSettings,
                 onExportBackup = viewModel::exportBackupJson,
                 onImportBackup = viewModel::importBackupJson,
               )

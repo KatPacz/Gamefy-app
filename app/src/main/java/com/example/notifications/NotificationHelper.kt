@@ -20,6 +20,7 @@ import com.example.R
 object NotificationHelper {
   const val CHANNEL_REMINDERS = "gamefy_reminders"
   const val CHANNEL_TIMER = "gamefy_timer"
+  const val EXTRA_TARGET_ROUTE = "target_route"
 
   fun ensureChannels(context: Context) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -60,12 +61,16 @@ object NotificationHelper {
     channelId: String,
     title: String,
     body: String,
+    targetRoute: String? = if (channelId == CHANNEL_REMINDERS) "tasks" else null,
   ) {
     ensureChannels(context)
     if (!hasNotificationPermission(context)) return
 
     val launchIntent = Intent(context, MainActivity::class.java).apply {
-      flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+      if (!targetRoute.isNullOrBlank()) {
+        putExtra(EXTRA_TARGET_ROUTE, targetRoute)
+      }
     }
     val pendingIntent = PendingIntent.getActivity(
       context,

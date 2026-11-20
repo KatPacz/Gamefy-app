@@ -15,6 +15,7 @@ import com.example.data.local.TagEntity
 import com.example.data.local.TaskEntity
 import com.example.data.model.AchievementDefinition
 import com.example.data.model.AppThemeId
+import com.example.data.model.NotificationSettings
 import com.example.data.model.ReminderMode
 import com.example.data.model.TaskCategory
 import com.example.data.repository.GamefyRepository
@@ -593,6 +594,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       } else {
         ReminderScheduler.cancel(app)
         _toastEvents.tryEmit("Powiadomienia wyłączone")
+      }
+    }
+  }
+
+  fun updateNotificationSettings(settings: NotificationSettings) {
+    viewModelScope.launch {
+      repository.updateNotificationSettings(settings)
+      if (uiState.value.profile.notificationsEnabled) {
+        ReminderScheduler.scheduleNextCheck(app)
       }
     }
   }

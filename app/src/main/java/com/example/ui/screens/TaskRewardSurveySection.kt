@@ -12,24 +12,32 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +59,7 @@ import com.example.data.model.PenaltyMode
 import com.example.data.model.ReminderMode
 import com.example.data.model.TaskDifficulty
 import com.example.data.model.TaskEffortBucket
+import com.example.data.model.formatTimeHm
 import com.example.ui.components.PixelButton
 import com.example.ui.components.PixelCard
 import com.example.ui.components.PixelIcon
@@ -365,11 +374,15 @@ fun TaskRewardsSectionCard(
   }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TaskReminderAndPenaltyCard(
   reminderMode: ReminderMode,
   onSelectReminderMode: (ReminderMode) -> Unit,
+  preferredReminderHour: Int,
+  preferredReminderMinute: Int,
+  onSelectPreferredTime: (Int, Int) -> Unit,
+  globalForcedModeActive: Boolean = false,
   penaltyMode: PenaltyMode,
   onSelectPenaltyMode: (PenaltyMode) -> Unit,
   autoPenaltyEnabled: Boolean,
@@ -382,6 +395,7 @@ fun TaskReminderAndPenaltyCard(
   val palette = LocalGamefyPalette.current
   var reminderMenuExpanded by remember { mutableStateOf(false) }
   var penaltyMenuExpanded by remember { mutableStateOf(false) }
+  var showPreferredTimePicker by remember { mutableStateOf(false) }
 
   PixelCard {
     Text(
@@ -390,6 +404,24 @@ fun TaskReminderAndPenaltyCard(
       color = palette.textMuted,
     )
     Spacer(modifier = Modifier.height(8.dp))
+
+    if (globalForcedModeActive) {
+      Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = PixelColors.Orange.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, PixelColors.Orange.copy(alpha = 0.5f)),
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(bottom = 8.dp),
+      ) {
+        Text(
+          text = "Uwaga: w Profil → Ustawienia wyłączono „Zależne od zadania” — obecnie wymuszone są powiadomienia globalne.",
+          style = MaterialTheme.typography.bodySmall,
+          color = PixelColors.Orange,
+          modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+        )
+      }
+    }
 
     ExposedDropdownMenuBox(
       expanded = reminderMenuExpanded,
@@ -416,6 +448,105 @@ fun TaskReminderAndPenaltyCard(
             text = { Text(mode.label) },
             onClick = { onSelectReminderMode(mode); reminderMenuExpanded = false },
           )
+        }
+      }
+    }
+
+    AnimatedVisibility(visible = reminderMode != ReminderMode.NONE) {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(top = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+      ) {
+        Text(
+          text = "Preferowana godzina powiadomienia",
+          style = MaterialTheme.typography.labelLarge,
+          color = palette.textPrimary,
+        )
+        Surface(
+          shape = RoundedCornerShape(12.dp),
+          color = palette.surfaceSubtle,
+          border = BorderStroke(
+            width = 1.5.dp,
+            color = if (preferredReminderHour >= 0) palette.accent else palette.divider,
+          ),
+          modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { showPreferredTimePicker = true }
+            .testTag("task_preferred_time_button"),
+        ) {
+          Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+          ) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+              modifier = Modifier.weight(1f),
+            ) {
+              Icon(
+                imageVector = Icons.Default.AccessTime,
+                contentDescription = null,
+                tint = if (preferredReminderHour >= 0) palette.accent else palette.textMuted,
+                modifier = Modifier.size(18.dp),
+              )
+              Column {
+                Text(
+                  text = if (preferredReminderHour >= 0) {
+                    formatTimeHm(preferredReminderHour, preferredReminderMinute)
+                  } else {
+                    "Dowolna (brak konkretnej godziny)"
+                  },
+                  style = MaterialTheme.typography.titleSmall,
+                  fontWeight = FontWeight.Bold,
+                  color = palette.textPrimary,
+                )
+                Text(
+                  text = "Kliknij, aby ustawić dokładną godzinę powiadomienia",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = palette.textMuted,
+                )
+              }
+            }
+            if (preferredReminderHour >= 0) {
+              IconButton(
+                onClick = { onSelectPreferredTime(-1, 0) },
+                modifier = Modifier
+                  .size(32.dp)
+                  .testTag("task_clear_preferred_time_button"),
+              ) {
+                Icon(
+                  imageVector = Icons.Default.Close,
+                  contentDescription = "Wyczyść preferowaną godzinę",
+                  modifier = Modifier.size(18.dp),
+                )
+              }
+            }
+          }
+        }
+
+        FlowRow(
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+          verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          SurveyChoiceChip(
+            label = "Dowolna",
+            selected = preferredReminderHour < 0,
+            onClick = { onSelectPreferredTime(-1, 0) },
+            testTag = "task_pref_hour_any",
+          )
+          listOf(8 to 0, 12 to 0, 18 to 0, 20 to 0).forEach { (h, m) ->
+            SurveyChoiceChip(
+              label = formatTimeHm(h, m),
+              selected = preferredReminderHour == h && preferredReminderMinute == m,
+              onClick = { onSelectPreferredTime(h, m) },
+              testTag = "task_pref_hour_$h",
+            )
+          }
         }
       }
     }
@@ -551,6 +682,30 @@ fun TaskReminderAndPenaltyCard(
         }
       }
     }
+  }
+
+  if (showPreferredTimePicker) {
+    val pickerState = rememberTimePickerState(
+      initialHour = if (preferredReminderHour >= 0) preferredReminderHour.coerceIn(0, 23) else 9,
+      initialMinute = if (preferredReminderHour >= 0) preferredReminderMinute.coerceIn(0, 59) else 0,
+      is24Hour = true,
+    )
+    AlertDialog(
+      onDismissRequest = { showPreferredTimePicker = false },
+      title = { Text("Preferowana godzina powiadomienia") },
+      text = { TimePicker(state = pickerState) },
+      confirmButton = {
+        TextButton(
+          onClick = {
+            onSelectPreferredTime(pickerState.hour, pickerState.minute)
+            showPreferredTimePicker = false
+          },
+        ) { Text("Ustaw") }
+      },
+      dismissButton = {
+        TextButton(onClick = { showPreferredTimePicker = false }) { Text("Anuluj") }
+      },
+    )
   }
 }
 

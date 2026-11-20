@@ -25,6 +25,18 @@ data class PlayerProfileEntity(
   val boughtMostExpensive: Boolean = false,
   val completedNightAction: Boolean = false,
   val completedSubtaskChain: Boolean = false,
+  val notifDaysCsv: String = "1,2,3,4,5,6,7",
+  val notifSlotsCsv: String = "any",
+  val notifCustomStartHour: Int = 9,
+  val notifCustomStartMinute: Int = 0,
+  val notifCustomEndHour: Int = 21,
+  val notifCustomEndMinute: Int = 0,
+  val notifTriggerModeCode: String = "reminder",
+  val notifMaxPerDay: Int = 0,
+  val notifSummaryStyleCode: String = "digest",
+  val notifUseTaskSettings: Boolean = true,
+  val notifSentCountToday: Int = 0,
+  val notifSentEpochDay: Long = -1L,
 )
 
 @Entity(tableName = "attributes")
@@ -83,6 +95,8 @@ data class TaskEntity(
   val subtasksJson: String = "[]",
   val difficultyCode: String = "m",
   val gemReward: Int = 0,
+  val preferredReminderHour: Int = -1,
+  val preferredReminderMinute: Int = 0,
 )
 
 @Entity(tableName = "shop_items")

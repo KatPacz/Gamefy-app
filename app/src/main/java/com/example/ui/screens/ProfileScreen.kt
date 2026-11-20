@@ -41,8 +41,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -72,7 +70,9 @@ import com.example.data.local.parseStringCsv
 import com.example.data.model.AchievementDefinition
 import com.example.data.model.AppThemeId
 import com.example.data.model.GAMEFY_ACHIEVEMENTS
+import com.example.data.model.NotificationSettings
 import com.example.data.model.calculateLevel
+import com.example.data.model.toNotificationSettings
 import com.example.notifications.NotificationHelper
 import com.example.ui.GamefyUiState
 import com.example.ui.components.PixelButton
@@ -118,6 +118,7 @@ fun ProfileScreen(
   onDeleteTag: (Long) -> Unit,
   onSelectTheme: (AppThemeId) -> Unit,
   onToggleNotifications: (Boolean) -> Unit,
+  onUpdateNotificationSettings: (NotificationSettings) -> Unit,
   onExportBackup: suspend () -> String,
   onImportBackup: (String) -> Unit,
   modifier: Modifier = Modifier,
@@ -572,46 +573,28 @@ fun ProfileScreen(
                   color = palette.divider,
                 )
 
-                Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  verticalAlignment = Alignment.CenterVertically,
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                  Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                      text = "Powiadomienia lokalne",
-                      style = MaterialTheme.typography.titleSmall,
-                      fontWeight = FontWeight.Bold,
-                      color = palette.textPrimary,
-                    )
-                    Text(
-                      text = "Przypomnienia działają offline w tle według terminów zadań.",
-                      style = MaterialTheme.typography.bodySmall,
-                      color = palette.textMuted,
-                    )
-                  }
-                  Spacer(modifier = Modifier.width(12.dp))
-                  Switch(
-                    checked = uiState.profile.notificationsEnabled,
-                    onCheckedChange = { enable ->
-                      if (enable) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                          !NotificationHelper.hasNotificationPermission(context)
-                        ) {
-                          notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } else {
-                          onToggleNotifications(true)
-                        }
-                      } else {
-                        onToggleNotifications(false)
-                      }
-                    },
-                    colors = SwitchDefaults.colors(
-                      checkedThumbColor = Color.White,
-                      checkedTrackColor = PixelColors.Green,
-                    ),
-                  )
+                val notifSettings = remember(uiState.profile) {
+                  uiState.profile.toNotificationSettings()
                 }
+                NotificationPreferencesBlock(
+                  notificationsEnabled = uiState.profile.notificationsEnabled,
+                  settings = notifSettings,
+                  tasks = uiState.tasks,
+                  onToggleNotifications = { enable ->
+                    if (enable) {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        !NotificationHelper.hasNotificationPermission(context)
+                      ) {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                      } else {
+                        onToggleNotifications(true)
+                      }
+                    } else {
+                      onToggleNotifications(false)
+                    }
+                  },
+                  onUpdateSettings = onUpdateNotificationSettings,
+                )
               }
             }
 

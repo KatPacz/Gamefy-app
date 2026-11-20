@@ -147,6 +147,12 @@ fun TaskEditorScreen(
   var reminderMode by remember(existingTask) {
     mutableStateOf(ReminderMode.fromCode(existingTask?.reminderModeCode ?: "d1"))
   }
+  var preferredReminderHour by remember(existingTask) {
+    mutableIntStateOf(existingTask?.preferredReminderHour ?: -1)
+  }
+  var preferredReminderMinute by remember(existingTask) {
+    mutableIntStateOf(existingTask?.preferredReminderMinute ?: 0)
+  }
   var penaltyMode by remember(existingTask) {
     mutableStateOf(PenaltyMode.fromCode(existingTask?.penaltyModeCode ?: "0"))
   }
@@ -709,6 +715,13 @@ fun TaskEditorScreen(
           TaskReminderAndPenaltyCard(
             reminderMode = reminderMode,
             onSelectReminderMode = { reminderMode = it },
+            preferredReminderHour = preferredReminderHour,
+            preferredReminderMinute = preferredReminderMinute,
+            onSelectPreferredTime = { h, m ->
+              preferredReminderHour = h
+              preferredReminderMinute = m
+            },
+            globalForcedModeActive = !uiState.profile.notifUseTaskSettings,
             penaltyMode = penaltyMode,
             onSelectPenaltyMode = { penaltyMode = it },
             autoPenaltyEnabled = autoPenaltyEnabled,
@@ -764,6 +777,8 @@ fun TaskEditorScreen(
                   rewardItemId = rewardItemId,
                   durationMinutes = (durationText.toIntOrNull() ?: 0).coerceAtLeast(0),
                   reminderModeCode = reminderMode.code,
+                  preferredReminderHour = preferredReminderHour,
+                  preferredReminderMinute = preferredReminderMinute,
                   penaltyModeCode = penaltyMode.code,
                   penaltyMinCoins = minP,
                   penaltyMaxCoins = maxP,
