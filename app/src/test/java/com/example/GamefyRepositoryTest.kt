@@ -12,6 +12,7 @@ import com.example.data.local.TaskEntity
 import com.example.data.local.parseStringCsv
 import com.example.data.local.parseSubtasksJson
 import com.example.data.local.toSubtasksJson
+import com.example.data.model.ActivityEventType
 import com.example.data.model.MILLIS_PER_DAY
 import com.example.data.model.NotificationSettings
 import com.example.data.model.NotificationSummaryStyle
@@ -534,5 +535,52 @@ class GamefyRepositoryTest {
     val restoredTask = dao.getTasksOnce().first { it.name == "Ignoruj ustawienia zadania" }
     assertEquals(8, restoredTask.preferredReminderHour)
     assertEquals(0, restoredTask.preferredReminderMinute)
+  }
+
+  @Test
+  fun `repository logs task shop focus activity events and preserves them in json backup`() = runTest {
+    val dao = db.gamefyDao()
+    dao.upsertProfile(PlayerProfileEntity(id = 1L, coins = 200))
+    val now = System.currentTimeMillis()
+    val onTimeTaskId = dao.insertTask(
+      TaskEntity(
+        name = "Na czas",
+        categoryCode = "d",
+        coinReward = 25,
+        expReward = 20,
+        startTimestamp = now - 3600_000L,
+        dueTimestamp = now + 3600_000L,
+      )
+    )
+    val lateTaskId = dao.insertTask(
+      TaskEntity(
+        name = "Spóźnione",
+        categoryCode = "w",
+        coinReward = 15,
+        expReward = 15,
+        startTimestamp = now - 5 * MILLIS_PER_DAY,
+        dueTimestamp = now - 3600_000L,
+      )
+    )
+    val itemId = dao.insertShopItem(ShopItemEntity(icon = "☕", name = "Kawa", coinPrice = 30))
+
+    repo.completeTask(dao.getTasksOnce().first { it.id == onTimeTaskId })
+    repo.completeTask(dao.getTasksOnce().first { it.id == lateTaskId })
+    repo.completeFocusSession(25 * 60)
+    repo.buyShopItem(dao.getShopItemsOnce().first { it.id == itemId })
+
+    val events = dao.getActivityEventsOnce()
+    val doneEvents = events.filter { it.eventType == ActivityEventType.TASK_DONE }
+    assertEquals(2, doneEvents.size)
+    assertTrue(doneEvents.any { it.taskName == "Na czas" && it.onTime })
+    assertTrue(doneEvents.any { it.taskName == "Spóźnione" && !it.onTime })
+    assertTrue(events.any { it.eventType == ActivityEventType.FOCUS_DONE && it.durationMinutes == 25 })
+    assertTrue(events.any { it.eventType == ActivityEventType.SHOP_BUY && it.itemName == "Kawa" && it.coinsDelta == -30 })
+
+    val json = repo.exportToJson()
+    dao.clearActivityEvents()
+    assertTrue(dao.getActivityEventsOnce().isEmpty())
+    assertTrue(repo.importFromJson(json))
+    assertEquals(events.size, dao.getActivityEventsOnce().size)
   }
 }

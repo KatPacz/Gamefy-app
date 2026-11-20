@@ -6,6 +6,7 @@ import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.GamefyApp
+import com.example.data.local.ActivityEventEntity
 import com.example.data.local.AttributeEntity
 import com.example.data.local.FolderEntity
 import com.example.data.local.GamefyDatabase
@@ -80,6 +81,7 @@ data class GamefyUiState(
   val tags: List<TagEntity> = emptyList(),
   val tasks: List<TaskEntity> = emptyList(),
   val shopItems: List<ShopItemEntity> = emptyList(),
+  val activityEvents: List<ActivityEventEntity> = emptyList(),
   val isLoaded: Boolean = false,
 ) {
   val themeId: AppThemeId
@@ -98,6 +100,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     repository.tags,
     repository.tasks,
     repository.shopItems,
+    repository.activityEvents,
     _isLoaded,
   ) { values ->
     @Suppress("UNCHECKED_CAST")
@@ -108,7 +111,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       tags = values[3] as List<TagEntity>,
       tasks = values[4] as List<TaskEntity>,
       shopItems = values[5] as List<ShopItemEntity>,
-      isLoaded = values[6] as Boolean,
+      activityEvents = values[6] as List<ActivityEventEntity>,
+      isLoaded = values[7] as Boolean,
     )
   }.stateIn(
     scope = viewModelScope,

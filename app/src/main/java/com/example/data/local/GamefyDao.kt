@@ -95,6 +95,18 @@ interface GamefyDao {
   @Query("DELETE FROM shop_items WHERE id = :id")
   suspend fun deleteShopItemById(id: Long)
 
+  @Query("SELECT * FROM activity_events ORDER BY timestamp DESC, id DESC")
+  fun observeActivityEvents(): Flow<List<ActivityEventEntity>>
+
+  @Query("SELECT * FROM activity_events ORDER BY timestamp DESC, id DESC")
+  suspend fun getActivityEventsOnce(): List<ActivityEventEntity>
+
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
+  suspend fun insertActivityEvent(event: ActivityEventEntity): Long
+
+  @Query("DELETE FROM activity_events")
+  suspend fun clearActivityEvents()
+
   @Query("DELETE FROM attributes")
   suspend fun clearAttributes()
 
@@ -118,17 +130,20 @@ interface GamefyDao {
     tags: List<TagEntity>,
     tasks: List<TaskEntity>,
     shopItems: List<ShopItemEntity>,
+    activityEvents: List<ActivityEventEntity> = emptyList(),
   ) {
     clearTasks()
     clearShopItems()
     clearAttributes()
     clearFolders()
     clearTags()
+    clearActivityEvents()
     upsertProfile(profile.copy(id = 1L))
     attributes.forEach { insertAttribute(it) }
     folders.forEach { insertFolder(it) }
     tags.forEach { insertTag(it) }
     tasks.forEach { insertTask(it) }
     shopItems.forEach { insertShopItem(it) }
+    activityEvents.forEach { insertActivityEvent(it) }
   }
 }

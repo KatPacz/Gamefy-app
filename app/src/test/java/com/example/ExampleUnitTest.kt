@@ -1,18 +1,27 @@
 package com.example
 
+import com.example.data.local.ActivityEventEntity
+import com.example.data.local.PlayerProfileEntity
 import com.example.data.local.TaskEntity
+import com.example.data.model.ActivityEventType
 import com.example.data.model.MILLIS_PER_DAY
 import com.example.data.model.NotificationSettings
 import com.example.data.model.NotificationSummaryStyle
 import com.example.data.model.NotificationTimeSlot
 import com.example.data.model.PenaltyMode
+import com.example.data.model.StatsCoinRange
+import com.example.data.model.StatsCompletionPeriod
+import com.example.data.model.TaskCategory
 import com.example.data.model.TaskDifficulty
 import com.example.data.model.TaskEffortBucket
 import com.example.data.model.TaskSortDirection
+import com.example.data.model.buildCompletionChartSeries
 import com.example.data.model.buildMonthCalendarGrid
 import com.example.data.model.buildSummaryNotificationText
 import com.example.data.model.calculateAutoPenaltyRange
 import com.example.data.model.calculateAutoRewardAndPenalty
+import com.example.data.model.computeCoinEconomySummary
+import com.example.data.model.computePlayerAnalytics
 import com.example.data.model.groupTasksByCategory
 import com.example.data.model.groupTasksByDifficulty
 import com.example.data.model.isWithinNotificationSchedule
@@ -193,6 +202,55 @@ class ExampleUnitTest {
     val tickTock = buildSummaryNotificationText(listOf(t1, t2), NotificationSummaryStyle.URGENT_TICK_TOCK)
     assertTrue(tickTock.contains("Tik tak"))
     assertTrue(tickTock.contains("(2)"))
+  }
+
+  @Test
+  fun playerAnalyticsComputesReliabilityCategoryPunctualityAndYoYCharts() {
+    val now = Calendar.getInstance().apply {
+      set(2026, Calendar.NOVEMBER, 20, 12, 0, 0)
+      set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+    val lastYear = Calendar.getInstance().apply {
+      set(2025, Calendar.JUNE, 10, 12, 0, 0)
+      set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
+    val events = listOf(
+      ActivityEventEntity(timestamp = now, eventType = ActivityEventType.TASK_DONE, taskId = 1, taskName = "Woda", categoryCode = "d", onTime = true, coinsDelta = 20),
+      ActivityEventEntity(timestamp = now - MILLIS_PER_DAY, eventType = ActivityEventType.TASK_DONE, taskId = 1, taskName = "Woda", categoryCode = "d", onTime = true, coinsDelta = 20),
+      ActivityEventEntity(timestamp = now - 2 * MILLIS_PER_DAY, eventType = ActivityEventType.TASK_DONE, taskId = 2, taskName = "Pranie", categoryCode = "w", onTime = false, coinsDelta = 30),
+      ActivityEventEntity(timestamp = now - 3 * MILLIS_PER_DAY, eventType = ActivityEventType.TASK_SKIP, taskId = 2, taskName = "Pranie", categoryCode = "w", onTime = false, coinsDelta = -10),
+      ActivityEventEntity(timestamp = lastYear, eventType = ActivityEventType.TASK_DONE, taskId = 1, taskName = "Woda", categoryCode = "d", onTime = true, coinsDelta = 20),
+      ActivityEventEntity(timestamp = now, eventType = ActivityEventType.SHOP_BUY, itemId = 1, itemName = "Kawa", itemIcon = "☕", coinsDelta = -30),
+      ActivityEventEntity(timestamp = now - MILLIS_PER_DAY, eventType = ActivityEventType.SHOP_BUY, itemId = 1, itemName = "Kawa", itemIcon = "☕", coinsDelta = -30),
+      ActivityEventEntity(timestamp = now - MILLIS_PER_DAY, eventType = ActivityEventType.SHOP_BUY, itemId = 2, itemName = "Serial", itemIcon = "🎬", coinsDelta = -80),
+      ActivityEventEntity(timestamp = now, eventType = ActivityEventType.FOCUS_DONE, durationMinutes = 25, coinsDelta = 5),
+    )
+
+    val analytics = computePlayerAnalytics(PlayerProfileEntity(), emptyList(), events, now)
+    assertEquals(75, analytics.overallOnTimePercent) // 3 on-time of 4 done
+    assertEquals("Woda", analytics.reliableTasks.first().name)
+    assertEquals(100, analytics.reliableTasks.first().onTimePercent)
+    assertEquals("Pranie", analytics.delayedTasks.first().name)
+    assertEquals(2, analytics.delayedTasks.first().lateOrSkipCount)
+    assertEquals(TaskCategory.DAILY, analytics.categoryPunctuality.first().category)
+    assertEquals(100, analytics.categoryPunctuality.first().onTimePercent)
+    assertEquals(25, analytics.totalFocusMinutes)
+
+    val yoy = buildCompletionChartSeries(events, StatsCompletionPeriod.YEAR_OVER_YEAR, now)
+    val pt2025 = yoy.first { it.label == "2025" }
+    val pt2026 = yoy.first { it.label == "2026" }
+    assertEquals(1, pt2025.count)
+    assertEquals(3, pt2026.count)
+    assertEquals("+200% r/r", pt2026.secondaryNote)
+
+    val econ7d = computeCoinEconomySummary(PlayerProfileEntity(), emptyList(), events, StatsCoinRange.DAYS_7, now)
+    assertEquals(75, econ7d.coinsEarned) // 20 + 20 + 30 + 5
+    assertEquals(140, econ7d.coinsSpentShop) // 30 + 30 + 80
+    assertEquals(10, econ7d.coinsLostPenalty)
+    assertEquals("Serial", econ7d.topPurchases.first().name)
+    assertEquals("Kawa", econ7d.topPurchases[1].name)
+    assertEquals(2, econ7d.topPurchases[1].purchaseCount)
   }
 }
 

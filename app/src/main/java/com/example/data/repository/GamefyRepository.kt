@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Base64
+import com.example.data.local.ActivityEventEntity
 import com.example.data.local.AttributeEntity
 import com.example.data.local.FolderEntity
 import com.example.data.local.GamefyDao
@@ -19,6 +20,7 @@ import com.example.data.local.toIdCsv
 import com.example.data.local.toStringCsv
 import com.example.data.local.toSubtasksJson
 import com.example.data.model.AchievementDefinition
+import com.example.data.model.ActivityEventType
 import com.example.data.model.AppThemeId
 import com.example.data.model.GAMEFY_ACHIEVEMENTS
 import com.example.data.model.MILLIS_PER_DAY
@@ -65,11 +67,13 @@ class GamefyRepository(private val dao: GamefyDao) {
   val tags: Flow<List<TagEntity>> = dao.observeTags()
   val tasks: Flow<List<TaskEntity>> = dao.observeTasks()
   val shopItems: Flow<List<ShopItemEntity>> = dao.observeShopItems()
+  val activityEvents: Flow<List<ActivityEventEntity>> = dao.observeActivityEvents()
 
   suspend fun completeTask(task: TaskEntity, fromSubtaskChain: Boolean = false): RewardOutcome {
     val now = System.currentTimeMillis()
     if (task.startTimestamp > now) return RewardOutcome()
 
+    val onTime = task.dueTimestamp == null || now <= task.dueTimestamp
     val category = TaskCategory.fromCode(task.categoryCode)
     val newCount = task.completedCount + 1
     val isFinished =
@@ -101,6 +105,21 @@ class GamefyRepository(private val dao: GamefyDao) {
         )
       )
     }
+
+    dao.insertActivityEvent(
+      ActivityEventEntity(
+        timestamp = now,
+        eventType = ActivityEventType.TASK_DONE,
+        taskId = task.id,
+        taskName = task.name,
+        categoryCode = task.categoryCode,
+        onTime = onTime,
+        coinsDelta = task.coinReward,
+        gemsDelta = task.gemReward,
+        expDelta = task.expReward,
+        durationMinutes = task.durationMinutes,
+      )
+    )
 
     val prefix = (if (isFinished) "✔ Zakończono! " else "") + itemSuffix.trimStart()
     return awardRewards(
@@ -134,14 +153,28 @@ class GamefyRepository(private val dao: GamefyDao) {
     val penaltyMode = PenaltyMode.fromCode(task.penaltyModeCode)
     var message = "Pominięto zadanie."
 
+    var appliedSkipPenalty = 0
     if (penaltyMode == PenaltyMode.ON_SKIP_ONLY) {
       val penalty = computePenaltyAmount(task.penaltyMinCoins, task.penaltyMaxCoins)
       if (penalty > 0) {
+        appliedSkipPenalty = penalty
         val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
         dao.upsertProfile(profile.copy(coins = (profile.coins - penalty).coerceAtLeast(0)))
         message = "Pominięto. Kara −$penalty 🪙"
       }
     }
+
+    dao.insertActivityEvent(
+      ActivityEventEntity(
+        timestamp = now,
+        eventType = ActivityEventType.TASK_SKIP,
+        taskId = task.id,
+        taskName = task.name,
+        categoryCode = task.categoryCode,
+        onTime = false,
+        coinsDelta = -appliedSkipPenalty,
+      )
+    )
 
     val category = TaskCategory.fromCode(task.categoryCode)
     if (category == TaskCategory.SIDEQUEST) {
@@ -176,9 +209,19 @@ class GamefyRepository(private val dao: GamefyDao) {
   }
 
   suspend fun completeFocusSession(totalSeconds: Int): RewardOutcome {
+    val now = System.currentTimeMillis()
     val minutes = max(1, totalSeconds / 60)
     val expGain = minutes
     val coinGain = max(1, totalSeconds / 300)
+    dao.insertActivityEvent(
+      ActivityEventEntity(
+        timestamp = now,
+        eventType = ActivityEventType.FOCUS_DONE,
+        coinsDelta = coinGain,
+        expDelta = expGain,
+        durationMinutes = minutes,
+      )
+    )
     val discipline = dao.getAttributesOnce().find { it.name.equals("Dyscyplina", ignoreCase = true) }
     val attrIds = if (discipline != null) listOf(discipline.id) else emptyList()
     return awardRewards(
@@ -253,6 +296,7 @@ class GamefyRepository(private val dao: GamefyDao) {
 
     val (finalProfile, newlyUnlocked) = evaluateAndGrantAchievements(updatedProfile)
     dao.upsertProfile(finalProfile)
+    logAchievementRewards(newlyUnlocked)
 
     val newLevel = calculateLevel(finalProfile.exp).level
     val parts = mutableListOf<String>()
@@ -342,13 +386,30 @@ class GamefyRepository(private val dao: GamefyDao) {
           }
       }
 
+      var taskPenalty = 0
       var changed = snapshot != task.penaltyDueSnapshot || applied != task.penaltyCountApplied
       while (checkBoundary <= now && applied < 99) {
-        totalPenalty += computePenaltyAmount(task.penaltyMinCoins, task.penaltyMaxCoins)
+        val delta = computePenaltyAmount(task.penaltyMinCoins, task.penaltyMaxCoins)
+        taskPenalty += delta
+        totalPenalty += delta
         applied++
         changed = true
         if (mode == PenaltyMode.ON_DUE_ONCE || category == TaskCategory.SIDEQUEST) break
         checkBoundary = nextCycleTimestamp(checkBoundary, category, task.repeatInterval)
+      }
+
+      if (taskPenalty > 0) {
+        dao.insertActivityEvent(
+          ActivityEventEntity(
+            timestamp = now,
+            eventType = ActivityEventType.PENALTY,
+            taskId = task.id,
+            taskName = task.name,
+            categoryCode = task.categoryCode,
+            onTime = false,
+            coinsDelta = -taskPenalty,
+          )
+        )
       }
 
       if (changed) {
@@ -361,6 +422,26 @@ class GamefyRepository(private val dao: GamefyDao) {
       dao.upsertProfile(profile.copy(coins = (profile.coins - totalPenalty).coerceAtLeast(0)))
     }
     return totalPenalty
+  }
+
+  private suspend fun logAchievementRewards(
+    unlocked: List<AchievementDefinition>,
+    timestamp: Long = System.currentTimeMillis(),
+  ) {
+    unlocked.forEach { ach ->
+      if (ach.rewardCoins > 0 || ach.rewardGems > 0 || ach.rewardExp > 0) {
+        dao.insertActivityEvent(
+          ActivityEventEntity(
+            timestamp = timestamp,
+            eventType = ActivityEventType.ACH_REWARD,
+            taskName = ach.title,
+            coinsDelta = ach.rewardCoins,
+            gemsDelta = ach.rewardGems,
+            expDelta = ach.rewardExp,
+          )
+        )
+      }
+    }
   }
 
   private fun computePenaltyAmount(minCoins: Int, maxCoins: Int): Int {
@@ -377,6 +458,7 @@ class GamefyRepository(private val dao: GamefyDao) {
         profile.copy(customTasksCreated = profile.customTasksCreated + 1)
       )
       dao.upsertProfile(finalProfile)
+      logAchievementRewards(unlocked)
       RewardOutcome(toastMessage = "Zapisano zadanie", unlockedAchievements = unlocked)
     } else {
       dao.updateTask(task)
@@ -459,6 +541,18 @@ class GamefyRepository(private val dao: GamefyDao) {
       )
     )
 
+    dao.insertActivityEvent(
+      ActivityEventEntity(
+        timestamp = now,
+        eventType = ActivityEventType.SHOP_BUY,
+        coinsDelta = -item.coinPrice,
+        gemsDelta = -item.gemPrice,
+        itemId = item.id,
+        itemName = item.name,
+        itemIcon = item.icon,
+      )
+    )
+
     val updatedProfile = profile.copy(
       coins = profile.coins - item.coinPrice,
       gems = profile.gems - item.gemPrice,
@@ -467,6 +561,7 @@ class GamefyRepository(private val dao: GamefyDao) {
     )
     val (finalProfile, newlyUnlocked) = evaluateAndGrantAchievements(updatedProfile)
     dao.upsertProfile(finalProfile)
+    logAchievementRewards(newlyUnlocked, now)
     return RewardOutcome(
       toastMessage = "Kupiono: ${item.name}!",
       unlockedAchievements = newlyUnlocked,
@@ -715,6 +810,7 @@ class GamefyRepository(private val dao: GamefyDao) {
     val tags = dao.getTagsOnce()
     val tasks = dao.getTasksOnce()
     val shop = dao.getShopItemsOnce()
+    val events = dao.getActivityEventsOnce()
 
     JSONObject().apply {
       put("version", 1)
@@ -846,6 +942,29 @@ class GamefyRepository(private val dao: GamefyDao) {
           }
         },
       )
+      put(
+        "activityEvents",
+        JSONArray().apply {
+          events.forEach { e ->
+            put(JSONObject().apply {
+              put("id", e.id)
+              put("timestamp", e.timestamp)
+              put("eventType", e.eventType)
+              put("taskId", e.taskId)
+              put("taskName", e.taskName)
+              put("categoryCode", e.categoryCode)
+              put("onTime", e.onTime)
+              put("coinsDelta", e.coinsDelta)
+              put("gemsDelta", e.gemsDelta)
+              put("expDelta", e.expDelta)
+              put("durationMinutes", e.durationMinutes)
+              put("itemId", e.itemId)
+              put("itemName", e.itemName)
+              put("itemIcon", e.itemIcon)
+            })
+          }
+        },
+      )
     }.toString(2)
   }
 
@@ -971,7 +1090,32 @@ class GamefyRepository(private val dao: GamefyDao) {
         )
       }
 
-      dao.replaceAllData(profile, attrs, folders, tags, tasks, shop)
+      val eventsArr = root.optJSONArray("activityEvents")
+      val events = if (eventsArr != null) {
+        (0 until eventsArr.length()).map { idx ->
+          val o = eventsArr.getJSONObject(idx)
+          ActivityEventEntity(
+            id = o.optLong("id", 0L),
+            timestamp = o.optLong("timestamp", System.currentTimeMillis()),
+            eventType = o.optString("eventType", ""),
+            taskId = o.optLong("taskId", 0L),
+            taskName = o.optString("taskName", ""),
+            categoryCode = o.optString("categoryCode", ""),
+            onTime = o.optBoolean("onTime", true),
+            coinsDelta = o.optInt("coinsDelta", 0),
+            gemsDelta = o.optInt("gemsDelta", 0),
+            expDelta = o.optInt("expDelta", 0),
+            durationMinutes = o.optInt("durationMinutes", 0),
+            itemId = o.optLong("itemId", 0L),
+            itemName = o.optString("itemName", ""),
+            itemIcon = o.optString("itemIcon", ""),
+          )
+        }
+      } else {
+        emptyList()
+      }
+
+      dao.replaceAllData(profile, attrs, folders, tags, tasks, shop, events)
       true
     }.getOrDefault(false)
   }

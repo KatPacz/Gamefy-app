@@ -117,6 +117,24 @@ data class ShopItemEntity(
   val purchaseHistoryCsv: String = "",
 )
 
+@Entity(tableName = "activity_events")
+data class ActivityEventEntity(
+  @PrimaryKey(autoGenerate = true) val id: Long = 0L,
+  val timestamp: Long,
+  val eventType: String,
+  val taskId: Long = 0L,
+  val taskName: String = "",
+  val categoryCode: String = "",
+  val onTime: Boolean = true,
+  val coinsDelta: Int = 0,
+  val gemsDelta: Int = 0,
+  val expDelta: Int = 0,
+  val durationMinutes: Int = 0,
+  val itemId: Long = 0L,
+  val itemName: String = "",
+  val itemIcon: String = "",
+)
+
 fun parseIdCsv(csv: String): List<Long> =
   csv.split(',').mapNotNull { it.trim().toLongOrNull() }.filter { it > 0L }
 

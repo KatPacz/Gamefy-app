@@ -18,8 +18,9 @@ import kotlinx.coroutines.sync.withLock
     TagEntity::class,
     TaskEntity::class,
     ShopItemEntity::class,
+    ActivityEventEntity::class,
   ],
-  version = 6,
+  version = 7,
   exportSchema = false,
 )
 abstract class GamefyDatabase : RoomDatabase() {
@@ -79,6 +80,31 @@ abstract class GamefyDatabase : RoomDatabase() {
       }
     }
 
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+          """
+          CREATE TABLE IF NOT EXISTS `activity_events` (
+            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            `timestamp` INTEGER NOT NULL,
+            `eventType` TEXT NOT NULL,
+            `taskId` INTEGER NOT NULL,
+            `taskName` TEXT NOT NULL,
+            `categoryCode` TEXT NOT NULL,
+            `onTime` INTEGER NOT NULL,
+            `coinsDelta` INTEGER NOT NULL,
+            `gemsDelta` INTEGER NOT NULL,
+            `expDelta` INTEGER NOT NULL,
+            `durationMinutes` INTEGER NOT NULL,
+            `itemId` INTEGER NOT NULL,
+            `itemName` TEXT NOT NULL,
+            `itemIcon` TEXT NOT NULL
+          )
+          """.trimIndent()
+        )
+      }
+    }
+
     fun getInstance(context: Context): GamefyDatabase {
       return INSTANCE ?: synchronized(this) {
         INSTANCE ?: Room.databaseBuilder(
@@ -86,7 +112,14 @@ abstract class GamefyDatabase : RoomDatabase() {
           GamefyDatabase::class.java,
           "gamefy_local.db",
         )
-          .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+          .addMigrations(
+            MIGRATION_1_2,
+            MIGRATION_2_3,
+            MIGRATION_3_4,
+            MIGRATION_4_5,
+            MIGRATION_5_6,
+            MIGRATION_6_7,
+          )
           .build()
           .also { INSTANCE = it }
       }

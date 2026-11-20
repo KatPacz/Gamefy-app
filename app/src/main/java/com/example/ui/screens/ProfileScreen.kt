@@ -30,18 +30,22 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.LibraryBooks
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,7 +75,12 @@ import com.example.data.model.AchievementDefinition
 import com.example.data.model.AppThemeId
 import com.example.data.model.GAMEFY_ACHIEVEMENTS
 import com.example.data.model.NotificationSettings
+import com.example.data.model.StatsCoinRange
+import com.example.data.model.StatsCompletionPeriod
+import com.example.data.model.buildCompletionChartSeries
 import com.example.data.model.calculateLevel
+import com.example.data.model.computeCoinEconomySummary
+import com.example.data.model.computePlayerAnalytics
 import com.example.data.model.toNotificationSettings
 import com.example.notifications.NotificationHelper
 import com.example.ui.GamefyUiState
@@ -92,6 +101,7 @@ import kotlinx.coroutines.launch
 private enum class ProfileSubTab(val label: String, val tag: String) {
   CHARACTER("Postać", "profile_tab_character"),
   ACHIEVEMENTS("Osiągnięcia", "profile_tab_achievements"),
+  STATS("Statystyki", "profile_tab_stats"),
   SETTINGS("Ustawienia", "profile_tab_settings"),
 }
 
@@ -130,10 +140,14 @@ fun ProfileScreen(
 
   var selectedTab by rememberSaveable { mutableStateOf(ProfileSubTab.CHARACTER) }
   var achievementFilter by rememberSaveable { mutableStateOf(AchievementFilter.ALL) }
+  var statsCompletionPeriod by rememberSaveable { mutableStateOf(StatsCompletionPeriod.DAILY) }
+  var statsCoinRange by rememberSaveable { mutableStateOf(StatsCoinRange.DAYS_30) }
   var editingAttribute by remember { mutableStateOf<AttributeEntity?>(null) }
   var showAddAttributeDialog by remember { mutableStateOf(false) }
   var showFolderManagerDialog by remember { mutableStateOf(false) }
   var showTagEditorDialog by remember { mutableStateOf(false) }
+  var showReadyTasksDialog by remember { mutableStateOf(false) }
+  var showRandomSideQuestDialog by remember { mutableStateOf(false) }
 
   LaunchedEffect(scrollToAchievementsTrigger) {
     if (scrollToAchievementsTrigger > 0) {
@@ -193,6 +207,28 @@ fun ProfileScreen(
     }
   }
 
+  val playerAnalytics = remember(uiState.profile, uiState.tasks, uiState.activityEvents) {
+    computePlayerAnalytics(
+      profile = uiState.profile,
+      tasks = uiState.tasks,
+      events = uiState.activityEvents,
+    )
+  }
+  val completionChartSeries = remember(uiState.activityEvents, statsCompletionPeriod) {
+    buildCompletionChartSeries(
+      events = uiState.activityEvents,
+      period = statsCompletionPeriod,
+    )
+  }
+  val coinEconomySummary = remember(uiState.profile, uiState.shopItems, uiState.activityEvents, statsCoinRange) {
+    computeCoinEconomySummary(
+      profile = uiState.profile,
+      shopItems = uiState.shopItems,
+      events = uiState.activityEvents,
+      range = statsCoinRange,
+    )
+  }
+
   Box(
     modifier = modifier.fillMaxSize(),
     contentAlignment = Alignment.TopCenter,
@@ -222,7 +258,7 @@ fun ProfileScreen(
               color = if (selected) palette.accent else Color.Transparent,
               modifier = Modifier
                 .weight(1f)
-                .height(40.dp)
+                .height(42.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .clickable(role = Role.Tab) {
                   selectedTab = tab
@@ -230,12 +266,15 @@ fun ProfileScreen(
                 }
                 .testTag(tab.tag),
             ) {
-              Box(contentAlignment = Alignment.Center) {
+              Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.padding(horizontal = 2.dp),
+              ) {
                 Text(
                   text = tab.label.uppercase(),
                   fontFamily = PixelFontFamily,
                   fontWeight = FontWeight.Bold,
-                  fontSize = 11.sp,
+                  fontSize = 9.5.sp,
                   color = if (selected) Color.White else palette.textMuted,
                   maxLines = 1,
                   overflow = TextOverflow.Ellipsis,
@@ -408,6 +447,20 @@ fun ProfileScreen(
             }
           }
 
+          ProfileSubTab.STATS -> {
+            profileStatsItems(
+              analytics = playerAnalytics,
+              currentStreak = uiState.profile.currentStreak,
+              bestStreak = uiState.profile.bestStreak,
+              completionPeriod = statsCompletionPeriod,
+              onSelectCompletionPeriod = { statsCompletionPeriod = it },
+              chartSeries = completionChartSeries,
+              coinRange = statsCoinRange,
+              onSelectCoinRange = { statsCoinRange = it },
+              economy = coinEconomySummary,
+            )
+          }
+
           ProfileSubTab.SETTINGS -> {
             item(key = "settings_org_header") {
               Text(
@@ -499,6 +552,49 @@ fun ProfileScreen(
                       )
                     },
                     onClick = { showTagEditorDialog = true },
+                  )
+                }
+
+                HorizontalDivider(
+                  modifier = Modifier.padding(vertical = 12.dp),
+                  color = palette.divider,
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                  PixelButton(
+                    text = "Baza Gotowych Zadań",
+                    compact = true,
+                    modifier = Modifier
+                      .fillMaxWidth()
+                      .testTag("open_ready_tasks_db_button"),
+                    leadingIcon = {
+                      Icon(
+                        imageVector = Icons.Default.LibraryBooks,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                      )
+                    },
+                    onClick = { showReadyTasksDialog = true },
+                  )
+
+                  PixelButton(
+                    text = "Random Side Quest",
+                    compact = true,
+                    containerColor = PixelColors.Orange,
+                    contentColor = Color.White,
+                    modifier = Modifier
+                      .fillMaxWidth()
+                      .testTag("open_random_side_quest_button"),
+                    leadingIcon = {
+                      Icon(
+                        imageVector = Icons.Default.Casino,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
+                      )
+                    },
+                    onClick = { showRandomSideQuestDialog = true },
                   )
                 }
               }
@@ -689,6 +785,32 @@ fun ProfileScreen(
       onUpdateTag = onUpdateTag,
       onDeleteTag = onDeleteTag,
       onDismiss = { showTagEditorDialog = false },
+    )
+  }
+
+  if (showReadyTasksDialog) {
+    AlertDialog(
+      onDismissRequest = { showReadyTasksDialog = false },
+      title = { Text("Baza Gotowych Zadań") },
+      text = { Text("Sekcja gotowa do skonfigurowania.") },
+      confirmButton = {
+        TextButton(onClick = { showReadyTasksDialog = false }) {
+          Text("Zamknij")
+        }
+      },
+    )
+  }
+
+  if (showRandomSideQuestDialog) {
+    AlertDialog(
+      onDismissRequest = { showRandomSideQuestDialog = false },
+      title = { Text("Random Side Quest") },
+      text = { Text("Sekcja gotowa do skonfigurowania.") },
+      confirmButton = {
+        TextButton(onClick = { showRandomSideQuestDialog = false }) {
+          Text("Zamknij")
+        }
+      },
     )
   }
 }
