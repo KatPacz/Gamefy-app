@@ -1,14 +1,27 @@
 package com.example
 
 import com.example.data.local.ActivityEventEntity
+import com.example.data.local.FolderEntity
 import com.example.data.local.PlayerProfileEntity
 import com.example.data.local.TaskEntity
+import com.example.data.local.defaultColorHexForFolder
+import com.example.data.local.normalizeColorHex
+import com.example.data.local.resolvedColorHex
+import com.example.ui.components.colorToHexString
+import com.example.ui.components.colorToHsv
+import com.example.ui.components.hsvToColor
+import com.example.ui.components.parseHexColor
 import com.example.data.model.ActivityEventType
 import com.example.data.model.MILLIS_PER_DAY
 import com.example.data.model.NotificationSettings
 import com.example.data.model.NotificationSummaryStyle
 import com.example.data.model.NotificationTimeSlot
+import com.example.data.model.OnboardingArea
+import com.example.data.model.OnboardingRewardPref
+import com.example.data.model.OnboardingTimePref
 import com.example.data.model.PenaltyMode
+import com.example.data.model.READY_TASK_TEMPLATES
+import com.example.data.model.REWARD_CATALOG_TEMPLATES
 import com.example.data.model.StatsCoinRange
 import com.example.data.model.StatsCompletionPeriod
 import com.example.data.model.TaskCategory
@@ -22,9 +35,13 @@ import com.example.data.model.calculateAutoPenaltyRange
 import com.example.data.model.calculateAutoRewardAndPenalty
 import com.example.data.model.computeCoinEconomySummary
 import com.example.data.model.computePlayerAnalytics
+import com.example.data.model.distributeWeightedExp
 import com.example.data.model.groupTasksByCategory
 import com.example.data.model.groupTasksByDifficulty
 import com.example.data.model.isWithinNotificationSchedule
+import com.example.data.model.recommendOnboardingRewards
+import com.example.data.model.recommendOnboardingTasks
+import com.example.data.model.rewardForDifficultyLevel
 import com.example.data.model.sortTasksByDifficulty
 import com.example.data.model.sortTasksByReward
 import com.example.data.model.sortTasksByTimeLeft
@@ -252,5 +269,138 @@ class ExampleUnitTest {
     assertEquals("Kawa", econ7d.topPurchases[1].name)
     assertEquals(2, econ7d.topPurchases[1].purchaseCount)
   }
+
+  @Test
+  fun builtInReadyTasksAndRewardsCatalogsMeetAllSpecificationInvariants() {
+    assertEquals(41, READY_TASK_TEMPLATES.size)
+    assertEquals(41, READY_TASK_TEMPLATES.map { it.id }.toSet().size)
+    assertEquals(14, REWARD_CATALOG_TEMPLATES.size)
+    assertEquals(14, REWARD_CATALOG_TEMPLATES.map { it.id }.toSet().size)
+
+    // Every template has valid difficulty 1..5, exact reward table mapping, and attribute weights summing to 100
+    READY_TASK_TEMPLATES.forEach { tpl ->
+      assertTrue("Difficulty out of range for ${tpl.id}", tpl.difficultyLevel in 1..5)
+      val (expectedCoins, expectedExp) = rewardForDifficultyLevel(tpl.difficultyLevel)
+      assertEquals(expectedCoins, tpl.coins)
+      assertEquals(expectedExp, tpl.exp)
+      assertEquals("Weights must sum to 100 for ${tpl.id}", 100, tpl.attributeWeights.values.sum())
+    }
+
+    // Exact difficulty table check
+    assertEquals(2 to 2, rewardForDifficultyLevel(1))
+    assertEquals(5 to 5, rewardForDifficultyLevel(2))
+    assertEquals(10 to 10, rewardForDifficultyLevel(3))
+    assertEquals(20 to 20, rewardForDifficultyLevel(4))
+    assertEquals(40 to 40, rewardForDifficultyLevel(5))
+
+    // pet_05 must be excluded from auto recommendations
+    assertTrue(READY_TASK_TEMPLATES.first { it.id == "pet_05" }.excludeFromAutoRecommendation)
+    // Subtask templates verified
+    assertTrue(READY_TASK_TEMPLATES.first { it.id == "dom_03" }.subtasks.size >= 3)
+    assertTrue(READY_TASK_TEMPLATES.first { it.id == "nauka_05" }.subtasks.size >= 4)
+    assertTrue(READY_TASK_TEMPLATES.first { it.id == "praca_01" }.subtasks.size >= 3)
+    assertTrue(READY_TASK_TEMPLATES.first { it.id == "ruch_05" }.subtasks.size >= 3)
+    assertTrue(READY_TASK_TEMPLATES.first { it.id == "pet_06" }.subtasks.size >= 3)
+    assertTrue(READY_TASK_TEMPLATES.first { it.id == "quest_04" }.subtasks.size >= 3)
+  }
+
+  @Test
+  fun onboardingRecommendationsEnforceDiversityCapTimeFilterPet05AndSkippedQ1() {
+    // Skipped Q1 -> empty list (never assumes interests)
+    assertTrue(recommendOnboardingTasks(emptyList(), OnboardingTimePref.SHORT).isEmpty())
+
+    // Multi-area selection -> max 8, diverse across all 3 selected areas, no duplicates
+    val diverse = recommendOnboardingTasks(
+      selectedAreas = listOf(OnboardingArea.DOM, OnboardingArea.NAUKA, OnboardingArea.RUCH),
+      timePref = OnboardingTimePref.ANY,
+    )
+    assertEquals(8, diverse.size)
+    assertEquals(8, diverse.map { it.id }.toSet().size)
+    assertEquals(setOf(OnboardingArea.DOM, OnboardingArea.NAUKA, OnboardingArea.RUCH), diverse.map { it.area }.toSet())
+
+    // Strict Q2 time filter: very_short -> all <= 5 min, never pads with longer tasks
+    val veryShort = recommendOnboardingTasks(
+      selectedAreas = listOf(OnboardingArea.DOM, OnboardingArea.NAUKA),
+      timePref = OnboardingTimePref.VERY_SHORT,
+    )
+    assertTrue(veryShort.isNotEmpty())
+    assertTrue(veryShort.all { it.estimatedMinutes <= 5 })
+
+    // pet_05 never appears in automatic recommendations
+    val pets = recommendOnboardingTasks(
+      selectedAreas = listOf(OnboardingArea.ZWIERZETA),
+      timePref = OnboardingTimePref.ANY,
+    )
+    assertTrue(pets.none { it.id == "pet_05" })
+    assertEquals(5, pets.size)
+
+    // Q4 rewards mapping returns 2 editable rewards per chosen category
+    val rewards = recommendOnboardingRewards(listOf(OnboardingRewardPref.GAMING, OnboardingRewardPref.BOOKS))
+    assertEquals(4, rewards.size)
+  }
+
+  @Test
+  fun weightedExpDistributionPreservesTotalExpDeterministically() {
+    assertEquals(
+      mapOf("Wiedza" to 7, "Dyscyplina" to 3),
+      distributeWeightedExp(10, mapOf("Wiedza" to 70, "Dyscyplina" to 30)),
+    )
+    assertEquals(
+      mapOf("Siła" to 12, "Zdrowie" to 6, "Dyscyplina" to 2),
+      distributeWeightedExp(20, mapOf("Siła" to 60, "Zdrowie" to 30, "Dyscyplina" to 10)),
+    )
+    val split5 = distributeWeightedExp(5, mapOf("Dyscyplina" to 70, "Zdrowie" to 30))
+    assertEquals(5, split5.values.sum())
+    assertEquals(4, split5["Dyscyplina"])
+    assertEquals(1, split5["Zdrowie"])
+  }
+
+  @Test
+  fun skippedTimePreferenceMatchesAnyDurationAndStrictRangesNeverLeak() {
+    val withNullTime = recommendOnboardingTasks(
+      selectedAreas = listOf(OnboardingArea.NAUKA),
+      timePref = null,
+    )
+    assertEquals(5, withNullTime.size)
+    assertTrue(withNullTime.any { it.estimatedMinutes == 10 })
+    assertTrue(withNullTime.any { it.estimatedMinutes == 25 })
+
+    val shortOnly = recommendOnboardingTasks(
+      selectedAreas = listOf(OnboardingArea.DOM, OnboardingArea.NAUKA, OnboardingArea.RUCH),
+      timePref = OnboardingTimePref.SHORT,
+    )
+    assertTrue(shortOnly.isNotEmpty())
+    assertTrue(shortOnly.all { it.estimatedMinutes in 5..15 })
+
+    val mediumOnly = recommendOnboardingTasks(
+      selectedAreas = listOf(OnboardingArea.DOM, OnboardingArea.NAUKA, OnboardingArea.RUCH),
+      timePref = OnboardingTimePref.MEDIUM,
+    )
+    assertTrue(mediumOnly.isNotEmpty())
+    assertTrue(mediumOnly.all { it.estimatedMinutes in 15..30 })
+  }
+
+  @Test
+  fun folderColorDefaultsNormalizationAndHsvWheelConversionWorkCorrectly() {
+    assertEquals("#F59E0B", defaultColorHexForFolder("Dom"))
+    assertEquals("#3B82F6", defaultColorHexForFolder("Praca"))
+    assertEquals("#8B5CF6", defaultColorHexForFolder("Nauka"))
+    assertEquals("#10B981", defaultColorHexForFolder("Zdrowie"))
+    assertEquals("#FF00AA", normalizeColorHex("ff00aa"))
+    assertEquals("#12AB34", normalizeColorHex(" #12ab34 "))
+    assertEquals("", normalizeColorHex("not-a-color"))
+
+    val customFolder = FolderEntity(id = 7L, icon = "🎸", name = "Muzyka", colorHex = "#e11d48")
+    assertEquals("#E11D48", customFolder.resolvedColorHex())
+
+    val fallbackFolder = FolderEntity(id = 7L, icon = "🏠", name = "Dom", colorHex = "")
+    assertEquals("#F59E0B", fallbackFolder.resolvedColorHex())
+
+    val parsed = parseHexColor("#3B82F6")
+    val (h, s, v) = colorToHsv(parsed)
+    val roundTripped = colorToHexString(hsvToColor(h, s, v))
+    assertEquals("#3B82F6", roundTripped)
+  }
 }
+
 

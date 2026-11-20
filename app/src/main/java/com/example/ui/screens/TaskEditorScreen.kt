@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -57,6 +59,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
@@ -80,6 +83,7 @@ import com.example.ui.GamefyUiState
 import com.example.ui.components.PixelButton
 import com.example.ui.components.PixelCard
 import com.example.ui.components.PixelIcon
+import com.example.ui.components.resolveFolderColor
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
 import java.text.SimpleDateFormat
@@ -302,10 +306,20 @@ fun TaskEditorScreen(
               ) {
                 val chosenFolder = uiState.folders.find { it.id == folderId }
                 OutlinedTextField(
-                  value = chosenFolder?.name ?: "Brak folderu",
+                  value = chosenFolder?.name ?: "Brak kategorii",
                   onValueChange = {},
                   readOnly = true,
-                  label = { Text("Folder") },
+                  label = { Text("Kategoria / folder") },
+                  leadingIcon = chosenFolder?.let { f ->
+                    {
+                      Box(
+                        modifier = Modifier
+                          .size(12.dp)
+                          .clip(CircleShape)
+                          .background(resolveFolderColor(f)),
+                      )
+                    }
+                  },
                   trailingIcon = {
                     ExposedDropdownMenuDefaults.TrailingIcon(expanded = folderMenuExpanded)
                   },
@@ -322,9 +336,17 @@ fun TaskEditorScreen(
                     onClick = { folderId = 0L; folderMenuExpanded = false },
                   )
                   uiState.folders.forEach { folder ->
+                    val folderColor = resolveFolderColor(folder)
                     DropdownMenuItem(
                       text = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                          Box(
+                            modifier = Modifier
+                              .size(10.dp)
+                              .clip(CircleShape)
+                              .background(folderColor),
+                          )
+                          Spacer(modifier = Modifier.width(8.dp))
                           PixelIcon(icon = folder.icon, size = 18.dp)
                           Spacer(modifier = Modifier.width(8.dp))
                           Text(folder.name)
@@ -754,10 +776,17 @@ fun TaskEditorScreen(
                 val limit = (repeatLimitText.toIntOrNull() ?: 0).coerceAtLeast(0)
                 val minP = (penaltyMinText.toIntOrNull() ?: 0).coerceAtLeast(0)
                 val maxP = (penaltyMaxText.toIntOrNull() ?: minP).coerceAtLeast(minP)
-                val resolvedDue = dueTimestamp ?: if (category == TaskCategory.SIDEQUEST) {
+                val isInactiveLibraryTask = existingTask?.isActive == false
+                val resolvedDue = dueTimestamp ?: if (category == TaskCategory.SIDEQUEST || isInactiveLibraryTask) {
                   null
                 } else {
                   existingTask?.dueTimestamp ?: nextCycleTimestamp(now, category, interval)
+                }
+                val newAttrCsv = toIdCsv(selectedAttrIds)
+                val resolvedWeightsJson = if (existingTask != null && existingTask.attributeIdsCsv == newAttrCsv) {
+                  existingTask.attributeWeightsJson
+                } else {
+                  ""
                 }
 
                 val taskToSave = (existingTask ?: TaskEntity(name = cleanName)).copy(
@@ -773,7 +802,8 @@ fun TaskEditorScreen(
                   coinReward = (coinsText.toIntOrNull() ?: 0).coerceAtLeast(0),
                   gemReward = (gemsText.toIntOrNull() ?: 0).coerceAtLeast(0),
                   difficultyCode = surveyDifficulty.code,
-                  attributeIdsCsv = toIdCsv(selectedAttrIds),
+                  attributeIdsCsv = newAttrCsv,
+                  attributeWeightsJson = resolvedWeightsJson,
                   rewardItemId = rewardItemId,
                   durationMinutes = (durationText.toIntOrNull() ?: 0).coerceAtLeast(0),
                   reminderModeCode = reminderMode.code,

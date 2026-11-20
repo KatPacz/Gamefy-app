@@ -92,6 +92,8 @@ fun PixelButton(
   containerColor: Color = LocalGamefyPalette.current.accent,
   contentColor: Color = Color.White,
   compact: Boolean = false,
+  horizontalPadding: Dp = if (compact) 12.dp else 18.dp,
+  fontSize: androidx.compose.ui.unit.TextUnit = if (compact) 12.sp else 14.sp,
   leadingIcon: (@Composable () -> Unit)? = null,
 ) {
   val palette = LocalGamefyPalette.current
@@ -137,7 +139,7 @@ fun PixelButton(
         onClick = onClick,
       )
       .padding(
-        horizontal = if (compact) 12.dp else 18.dp,
+        horizontal = horizontalPadding,
         vertical = if (compact) 8.dp else 11.dp,
       ),
     contentAlignment = Alignment.Center,
@@ -155,7 +157,7 @@ fun PixelButton(
         text = text.uppercase(),
         fontFamily = PixelFontFamily,
         fontWeight = FontWeight.Bold,
-        fontSize = if (compact) 12.sp else 14.sp,
+        fontSize = fontSize,
         color = fg,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,

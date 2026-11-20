@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.TaskEntity
+import com.example.data.model.OnboardingDetailPref
 import com.example.ui.GamefyUiState
 import com.example.ui.MainTimerMode
 import com.example.ui.MainTimerState
@@ -78,6 +79,7 @@ fun HomeScreen(
   onCompleteTask: (TaskEntity) -> Unit,
   onToggleSubtask: (TaskEntity, Long) -> Unit,
   onSkipTask: (TaskEntity) -> Unit,
+  onGiveUpTask: (TaskEntity) -> Unit = {},
   onEditTask: (Long) -> Unit,
   onToggleTaskTimer: (Long, Int) -> Unit,
   onResetTaskTimer: (Long, Int) -> Unit,
@@ -89,7 +91,7 @@ fun HomeScreen(
 
   val urgentTasks = remember(uiState.tasks, now) {
     uiState.tasks
-      .filter { it.startTimestamp <= now }
+      .filter { it.isActive && it.startTimestamp <= now }
       .sortedBy { it.dueTimestamp ?: Long.MAX_VALUE }
       .take(8)
   }
@@ -153,8 +155,11 @@ fun HomeScreen(
         }
       } else {
         item {
-          PixelCard(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {
-            urgentTasks.forEachIndexed { idx, task ->
+          Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            urgentTasks.forEach { task ->
               TaskCardItem(
                 task = task,
                 folders = uiState.folders,
@@ -171,14 +176,13 @@ fun HomeScreen(
                 onComplete = { onCompleteTask(task) },
                 onToggleSubtask = { subId -> onToggleSubtask(task, subId) },
                 onSkip = { onSkipTask(task) },
+                onGiveUp = { onGiveUpTask(task) },
                 onEdit = { onEditTask(task.id) },
                 onToggleSelect = {},
                 onToggleTaskTimer = { onToggleTaskTimer(task.id, task.durationMinutes) },
                 onResetTaskTimer = { onResetTaskTimer(task.id, task.durationMinutes) },
+                detailPref = OnboardingDetailPref.fromId(uiState.profile.onboardingDetailPref),
               )
-              if (idx < urgentTasks.lastIndex) {
-                HorizontalDivider(color = palette.divider)
-              }
             }
           }
         }

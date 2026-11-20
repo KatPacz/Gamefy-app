@@ -2,9 +2,12 @@ package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -12,13 +15,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
@@ -41,6 +47,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -55,18 +63,20 @@ import com.example.data.local.TaskEntity
 import com.example.data.local.parseIdCsv
 import com.example.data.local.parseSubtasksJson
 import com.example.data.model.MILLIS_PER_DAY
+import com.example.data.model.OnboardingDetailPref
 import com.example.data.model.PenaltyMode
 import com.example.data.model.TaskCategory
 import com.example.data.model.TaskDifficulty
 import com.example.data.model.formatDurationShort
 import com.example.data.model.formatFrequencyLabel
+import com.example.data.model.resolveGiveUpPenaltyRange
 import com.example.ui.TaskInlineTimerState
 import com.example.ui.theme.BodyFontFamily
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
 import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun TaskCardItem(
   task: TaskEntity,
@@ -87,10 +97,13 @@ fun TaskCardItem(
   onToggleTaskTimer: () -> Unit,
   onResetTaskTimer: () -> Unit,
   modifier: Modifier = Modifier,
+  onGiveUp: () -> Unit = {},
   showInlineTimer: Boolean = true,
+  detailPref: OnboardingDetailPref? = null,
 ) {
   val palette = LocalGamefyPalette.current
   val uriHandler = LocalUriHandler.current
+  val haptics = LocalHapticFeedback.current
   val now = System.currentTimeMillis()
   val folder = folders.find { it.id == task.folderId }
   val taskAttrs = parseIdCsv(task.attributeIdsCsv).mapNotNull { id -> attributes.find { it.id == id } }
@@ -101,8 +114,13 @@ fun TaskCardItem(
   val penaltyMode = PenaltyMode.fromCode(task.penaltyModeCode)
 
   var showCompleteAllDialog by remember { mutableStateOf(false) }
+  var showLongPressDialog by remember { mutableStateOf(false) }
   var isAnimatingComplete by remember(task.id, task.completedCount, task.startTimestamp) {
     mutableStateOf(false)
+  }
+  val defaultShowSubtasks = detailPref == null || detailPref == OnboardingDetailPref.STEP_BY_STEP
+  var subtasksExpanded by remember(task.id, detailPref) {
+    mutableStateOf(defaultShowSubtasks)
   }
 
   LaunchedEffect(isAnimatingComplete) {
@@ -147,11 +165,24 @@ fun TaskCardItem(
     }
   }
 
-  Column(
+  val folderColor = folder?.let { resolveFolderColor(it) }
+  val frameColor = folderColor ?: palette.outline.copy(alpha = 0.45f)
+  val frameStrokeWidth = if (folderColor != null) 2.5.dp else 1.5.dp
+
+  Surface(
+    shape = RoundedCornerShape(16.dp),
+    color = palette.surface,
+    border = BorderStroke(frameStrokeWidth, frameColor),
+    shadowElevation = 2.dp,
     modifier = modifier
       .fillMaxWidth()
-      .padding(vertical = 6.dp),
+      .testTag("task_card_${task.id}"),
   ) {
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
     Row(
       modifier = Modifier.fillMaxWidth(),
       verticalAlignment = Alignment.CenterVertically,
@@ -183,7 +214,18 @@ fun TaskCardItem(
         modifier = Modifier
           .weight(1f)
           .clip(RoundedCornerShape(10.dp))
-          .clickable(onClick = onToggleExpand)
+          .combinedClickable(
+            onClick = {
+              if (isBulkMode) onToggleSelect() else onToggleExpand()
+            },
+            onLongClick = {
+              if (!isBulkMode) {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                showLongPressDialog = true
+              }
+            },
+          )
+          .testTag("task_item_body_${task.id}")
           .padding(vertical = 4.dp),
       ) {
         Text(
@@ -201,15 +243,31 @@ fun TaskCardItem(
           horizontalArrangement = Arrangement.spacedBy(6.dp),
           verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-          if (folder != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-              PixelIcon(icon = folder.icon, size = 14.dp)
-              Spacer(modifier = Modifier.width(3.dp))
-              Text(
-                text = folder.name,
-                style = MaterialTheme.typography.bodySmall,
-                color = palette.textMuted,
-              )
+          if (folder != null && folderColor != null) {
+            Surface(
+              shape = RoundedCornerShape(6.dp),
+              color = folderColor.copy(alpha = 0.14f),
+              border = BorderStroke(1.dp, folderColor.copy(alpha = 0.6f)),
+            ) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+              ) {
+                Box(
+                  modifier = Modifier
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(folderColor),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                PixelIcon(icon = folder.icon, size = 13.dp)
+                Spacer(modifier = Modifier.width(3.dp))
+                Text(
+                  text = folder.name,
+                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                  color = palette.textPrimary,
+                )
+              }
             }
           }
           Text(
@@ -308,49 +366,77 @@ fun TaskCardItem(
       }
     }
 
-    // Subtasks rendered directly below the main task as smaller indented list items
+    // Subtasks presentation adapts to Q3 onboarding preference without ever deleting subtasks
     if (subtasks.isNotEmpty()) {
-      Column(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(start = 34.dp, top = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-      ) {
-        subtasks.forEach { sub ->
-          val visuallyChecked = sub.isDone || isAnimatingComplete
-          Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .clip(RoundedCornerShape(8.dp))
-              .clickable(enabled = isActive && !isAnimatingComplete) {
-                onToggleSubtask(sub.id)
-              }
-              .padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-          ) {
-            PixelCheckbox(
-              checked = visuallyChecked,
-              onClick = {
-                if (isActive && !isAnimatingComplete) {
+      val doneCount = subtasks.count { it.isDone }
+      if (detailPref == OnboardingDetailPref.SIMPLE || detailPref == OnboardingDetailPref.FLEXIBLE) {
+        val toggleLabel = if (detailPref == OnboardingDetailPref.SIMPLE) {
+          if (subtasksExpanded) "Ukryj podzadania ($doneCount/${subtasks.size})" else "Pokaż podzadania ($doneCount/${subtasks.size})"
+        } else {
+          if (subtasksExpanded) "Podzadania ($doneCount/${subtasks.size}) ▴" else "Podzadania ($doneCount/${subtasks.size}) ▾"
+        }
+        Surface(
+          shape = RoundedCornerShape(8.dp),
+          color = palette.surfaceSubtle,
+          modifier = Modifier
+            .padding(start = 34.dp, top = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { subtasksExpanded = !subtasksExpanded }
+            .testTag("subtask_toggle_${task.id}"),
+        ) {
+          Text(
+            text = toggleLabel,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = palette.accent,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+          )
+        }
+      }
+
+      AnimatedVisibility(visible = subtasksExpanded) {
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 34.dp, top = 2.dp),
+          verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+          subtasks.forEach { sub ->
+            val visuallyChecked = sub.isDone || isAnimatingComplete
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(enabled = isActive && !isAnimatingComplete) {
                   onToggleSubtask(sub.id)
                 }
-              },
-              boxSize = 20.dp,
-              touchTargetSize = 36.dp,
-              modifier = Modifier.testTag("subtask_check_${task.id}_${sub.id}"),
-            )
-            Text(
-              text = sub.title,
-              style = MaterialTheme.typography.bodySmall.copy(
-                fontWeight = FontWeight.Medium,
-                textDecoration = if (visuallyChecked) TextDecoration.LineThrough else TextDecoration.None,
-              ),
-              color = if (visuallyChecked) palette.textMuted else palette.textPrimary,
-              maxLines = 2,
-              overflow = TextOverflow.Ellipsis,
-              modifier = Modifier.weight(1f),
-            )
+                .padding(vertical = 2.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+              PixelCheckbox(
+                checked = visuallyChecked,
+                onClick = {
+                  if (isActive && !isAnimatingComplete) {
+                    onToggleSubtask(sub.id)
+                  }
+                },
+                boxSize = 20.dp,
+                touchTargetSize = 36.dp,
+                modifier = Modifier.testTag("subtask_check_${task.id}_${sub.id}"),
+              )
+              Text(
+                text = sub.title,
+                style = MaterialTheme.typography.bodySmall.copy(
+                  fontWeight = FontWeight.Medium,
+                  textDecoration = if (visuallyChecked) TextDecoration.LineThrough else TextDecoration.None,
+                ),
+                color = if (visuallyChecked) palette.textMuted else palette.textPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+              )
+            }
           }
         }
       }
@@ -363,7 +449,7 @@ fun TaskCardItem(
           .padding(top = 8.dp),
         shape = RoundedCornerShape(14.dp),
         color = palette.background,
-        border = BorderStroke(1.5.dp, palette.divider),
+        border = BorderStroke(1.5.dp, folderColor?.copy(alpha = 0.45f) ?: palette.divider),
       ) {
         Column(
           modifier = Modifier.padding(12.dp),
@@ -523,6 +609,7 @@ fun TaskCardItem(
       }
     }
   }
+  }
 
   if (showCompleteAllDialog) {
     AlertDialog(
@@ -543,6 +630,124 @@ fun TaskCardItem(
       },
       dismissButton = {
         TextButton(onClick = { showCompleteAllDialog = false }) {
+          Text("Anuluj")
+        }
+      },
+    )
+  }
+
+  if (showLongPressDialog) {
+    val (penMin, penMax) = resolveGiveUpPenaltyRange(
+      coinReward = task.coinReward,
+      difficultyCode = task.difficultyCode,
+      penaltyModeCode = task.penaltyModeCode,
+      penaltyMinCoins = task.penaltyMinCoins,
+      penaltyMaxCoins = task.penaltyMaxCoins,
+    )
+    val penaltyRangeText = if (penMax > penMin) "$penMin–$penMax" else "$penMin"
+    val giveUpSubtitle = if (category == TaskCategory.SIDEQUEST) {
+      "Kara: −$penaltyRangeText 🪙 · Zadanie jednorazowe zniknie z listy do zrobienia."
+    } else {
+      "Kara: −$penaltyRangeText 🪙 · Zadanie przestanie być spóźnione, a czas do terminu zacznie liczyć się od nowa."
+    }
+
+    AlertDialog(
+      onDismissRequest = { showLongPressDialog = false },
+      title = {
+        Text(
+          text = task.name,
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.Bold,
+          maxLines = 2,
+          overflow = TextOverflow.Ellipsis,
+        )
+      },
+      text = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+          Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = palette.surfaceSubtle,
+            border = BorderStroke(1.5.dp, palette.divider),
+            modifier = Modifier
+              .fillMaxWidth()
+              .heightIn(min = 48.dp)
+              .clip(RoundedCornerShape(12.dp))
+              .clickable {
+                showLongPressDialog = false
+                onEdit()
+              }
+              .testTag("longpress_edit_${task.id}"),
+          ) {
+            Row(
+              modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+              Icon(
+                imageVector = Icons.Default.Edit,
+                contentDescription = "Edytuj zadanie",
+                tint = palette.textPrimary,
+                modifier = Modifier.size(20.dp),
+              )
+              Text(
+                text = "Edytuj",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                color = palette.textPrimary,
+              )
+            }
+          }
+
+          if (isActive) {
+            Surface(
+              shape = RoundedCornerShape(12.dp),
+              color = PixelColors.Red.copy(alpha = 0.12f),
+              border = BorderStroke(1.5.dp, PixelColors.Red),
+              modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                  showLongPressDialog = false
+                  onGiveUp()
+                }
+                .testTag("longpress_give_up_${task.id}"),
+            ) {
+              Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+              ) {
+                Icon(
+                  imageVector = Icons.Default.Flag,
+                  contentDescription = "Poddaj się",
+                  tint = PixelColors.Red,
+                  modifier = Modifier.size(20.dp),
+                )
+                Column(
+                  modifier = Modifier.weight(1f),
+                  verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                  Text(
+                    text = "Poddaj się",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = PixelColors.Red,
+                  )
+                  Text(
+                    text = giveUpSubtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textMuted,
+                  )
+                }
+              }
+            }
+          }
+        }
+      },
+      confirmButton = {},
+      dismissButton = {
+        TextButton(onClick = { showLongPressDialog = false }) {
           Text("Anuluj")
         }
       },

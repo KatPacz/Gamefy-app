@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.TaskEntity
 import com.example.data.model.GEM_COIN_EQUIVALENT
+import com.example.data.model.OnboardingDetailPref
 import com.example.data.model.TaskDifficulty
 import com.example.data.model.TaskSortDirection
 import com.example.data.model.TaskViewMode
@@ -245,6 +246,7 @@ fun LazyListScope.taskGroupSectionItems(
   onCompleteTask: (TaskEntity) -> Unit,
   onToggleSubtask: (TaskEntity, Long) -> Unit,
   onSkipTask: (TaskEntity) -> Unit,
+  onGiveUpTask: (TaskEntity) -> Unit = {},
   onEditTask: (Long) -> Unit,
   onToggleSelect: (Long) -> Unit,
   onToggleTaskTimer: (Long, Int) -> Unit,
@@ -260,53 +262,59 @@ fun LazyListScope.taskGroupSectionItems(
     )
   }
   item {
-    val palette = LocalGamefyPalette.current
-    PixelCard(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {
-      tasks.forEachIndexed { idx, task ->
+    Column(
+      modifier = Modifier.fillMaxWidth(),
+      verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      tasks.forEach { task ->
         val isActive = task.startTimestamp <= now
-        if (showRewardWorthBadge) {
-          val worth = taskRewardSortValue(task)
-          Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(top = 2.dp),
-            horizontalArrangement = Arrangement.End,
-          ) {
-            Surface(
-              shape = RoundedCornerShape(6.dp),
-              color = PixelColors.Gold.copy(alpha = 0.16f),
+        Column(
+          modifier = Modifier.fillMaxWidth(),
+          verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          if (showRewardWorthBadge) {
+            val worth = taskRewardSortValue(task)
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
+              horizontalArrangement = Arrangement.End,
             ) {
-              Text(
-                text = "Wartość nagrody: $worth 🪙",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = PixelColors.Warning,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-              )
+              Surface(
+                shape = RoundedCornerShape(6.dp),
+                color = PixelColors.Gold.copy(alpha = 0.16f),
+              ) {
+                Text(
+                  text = "Wartość nagrody: $worth 🪙",
+                  style = MaterialTheme.typography.labelSmall,
+                  fontWeight = FontWeight.Bold,
+                  color = PixelColors.Warning,
+                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+              }
             }
           }
-        }
-        TaskCardItem(
-          task = task,
-          folders = uiState.folders,
-          attributes = uiState.attributes,
-          tags = uiState.tags,
-          isActive = isActive,
-          isExpanded = expandedTaskId == task.id,
-          isBulkMode = isBulkMode,
-          isSelected = task.id in selectedTaskIds,
-          inlineTimer = inlineTimer,
-          onToggleExpand = { onToggleExpand(task.id) },
-          onComplete = { if (isActive) onCompleteTask(task) },
-          onToggleSubtask = { subId -> if (isActive) onToggleSubtask(task, subId) },
-          onSkip = { if (isActive) onSkipTask(task) },
-          onEdit = { onEditTask(task.id) },
-          onToggleSelect = { onToggleSelect(task.id) },
-          onToggleTaskTimer = { onToggleTaskTimer(task.id, task.durationMinutes) },
-          onResetTaskTimer = { onResetTaskTimer(task.id, task.durationMinutes) },
-        )
-        if (idx < tasks.lastIndex) {
-          HorizontalDivider(color = palette.divider)
+          TaskCardItem(
+            task = task,
+            folders = uiState.folders,
+            attributes = uiState.attributes,
+            tags = uiState.tags,
+            isActive = isActive,
+            isExpanded = expandedTaskId == task.id,
+            isBulkMode = isBulkMode,
+            isSelected = task.id in selectedTaskIds,
+            inlineTimer = inlineTimer,
+            onToggleExpand = { onToggleExpand(task.id) },
+            onComplete = { if (isActive) onCompleteTask(task) },
+            onToggleSubtask = { subId -> if (isActive) onToggleSubtask(task, subId) },
+            onSkip = { if (isActive) onSkipTask(task) },
+            onGiveUp = { if (isActive) onGiveUpTask(task) },
+            onEdit = { onEditTask(task.id) },
+            onToggleSelect = { onToggleSelect(task.id) },
+            onToggleTaskTimer = { onToggleTaskTimer(task.id, task.durationMinutes) },
+            onResetTaskTimer = { onResetTaskTimer(task.id, task.durationMinutes) },
+            detailPref = OnboardingDetailPref.fromId(uiState.profile.onboardingDetailPref),
+          )
         }
       }
     }

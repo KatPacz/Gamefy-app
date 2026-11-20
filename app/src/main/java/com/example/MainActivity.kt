@@ -73,7 +73,9 @@ import com.example.ui.components.TopHudHeader
 import kotlinx.coroutines.delay
 import com.example.ui.screens.ChestScreen
 import com.example.ui.screens.HomeScreen
+import com.example.ui.screens.OnboardingScreen
 import com.example.ui.screens.ProfileScreen
+import com.example.ui.screens.ReadyTasksDatabaseScreen
 import com.example.ui.screens.ShopScreen
 import com.example.ui.screens.TaskEditorScreen
 import com.example.ui.screens.TasksScreen
@@ -87,6 +89,7 @@ private const val ROUTE_SHOP = "shop"
 private const val ROUTE_CHEST = "chest"
 private const val ROUTE_PROFILE = "profile"
 private const val ROUTE_TASK_EDIT = "task_edit/{taskId}"
+private const val ROUTE_READY_TASKS = "ready_tasks"
 
 private data class NavTab(
   val route: String,
@@ -137,7 +140,10 @@ fun GamefyRootScreen(
   val achievementQueue = remember { mutableStateListOf<AchievementDefinition>() }
   val currentAchievementBanner = achievementQueue.firstOrNull()
   var scrollToAchievementsNonce by remember { mutableIntStateOf(0) }
+  var openLibraryNonce by remember { mutableIntStateOf(0) }
+  var pendingOpenTasksAfterOnboarding by remember { mutableStateOf(false) }
   var showExitTimerDialog by remember { mutableStateOf(false) }
+  var showRandomSideQuestDialog by remember { mutableStateOf(false) }
 
   val activity = LocalContext.current as? Activity
   val anyTimerRunning = mainTimer.isRunning || taskTimer.isRunning
@@ -205,6 +211,46 @@ fun GamefyRootScreen(
         CircularProgressIndicator(color = palette.accent)
       }
       return@GamefyTheme
+    }
+
+    if (!uiState.profile.onboardingCompleted) {
+      val hasExistingData = uiState.tasks.isNotEmpty() ||
+        uiState.shopItems.isNotEmpty() ||
+        uiState.profile.exp > 0 ||
+        uiState.profile.coins > 0
+      OnboardingScreen(
+        hasExistingData = hasExistingData,
+        onStartFromScratch = viewModel::completeOnboardingStartFromScratch,
+        onCompleteSurvey = { areas, timePref, detailPref, rewardPrefs, selectedTaskIds, selectedRewardIds ->
+          viewModel.completeOnboardingFromSurvey(
+            areas = areas,
+            timePref = timePref,
+            detailPref = detailPref,
+            rewardPrefs = rewardPrefs,
+            selectedTemplateIds = selectedTaskIds,
+            selectedRewardTemplateIds = selectedRewardIds,
+            onDone = { addedTasks ->
+              if (addedTasks > 0) {
+                openLibraryNonce++
+                pendingOpenTasksAfterOnboarding = true
+              }
+            },
+          )
+        },
+        onRestoreFromJson = viewModel::importBackupDuringOnboarding,
+      )
+      return@GamefyTheme
+    }
+
+    LaunchedEffect(pendingOpenTasksAfterOnboarding, uiState.profile.onboardingCompleted) {
+      if (pendingOpenTasksAfterOnboarding && uiState.profile.onboardingCompleted) {
+        pendingOpenTasksAfterOnboarding = false
+        navController.navigate(ROUTE_TASKS) {
+          popUpTo(ROUTE_START) { saveState = true }
+          launchSingleTop = true
+          restoreState = true
+        }
+      }
     }
 
     val levelProgress = remember(uiState.profile.exp) {
@@ -350,6 +396,7 @@ fun GamefyRootScreen(
                 onCompleteTask = viewModel::completeTask,
                 onToggleSubtask = viewModel::toggleSubtask,
                 onSkipTask = viewModel::skipTask,
+                onGiveUpTask = viewModel::giveUpTask,
                 onEditTask = { taskId -> navController.navigate("task_edit/$taskId") },
                 onToggleTaskTimer = viewModel::toggleTaskTimer,
                 onResetTaskTimer = viewModel::resetTaskTimer,
@@ -365,10 +412,14 @@ fun GamefyRootScreen(
                 onCompleteTask = viewModel::completeTask,
                 onToggleSubtask = viewModel::toggleSubtask,
                 onSkipTask = viewModel::skipTask,
+                onGiveUpTask = viewModel::giveUpTask,
                 onApplyBulkUpdate = viewModel::applyBulkUpdate,
                 onToggleTaskTimer = viewModel::toggleTaskTimer,
                 onResetTaskTimer = viewModel::resetTaskTimer,
                 onDismissFocusView = viewModel::dismissTaskFocusView,
+                onActivateTask = viewModel::activateLibraryTask,
+                onOpenRandomQuest = { showRandomSideQuestDialog = true },
+                openLibraryTrigger = openLibraryNonce,
               )
             }
 
@@ -380,6 +431,7 @@ fun GamefyRootScreen(
                 onSaveItem = viewModel::saveShopItem,
                 onDeleteItem = viewModel::deleteShopItem,
                 onCompressImageUri = viewModel::compressImageUri,
+                onAddRewardFromCatalog = viewModel::addRewardFromCatalog,
               )
             }
 
@@ -408,6 +460,22 @@ fun GamefyRootScreen(
                 onUpdateNotificationSettings = viewModel::updateNotificationSettings,
                 onExportBackup = viewModel::exportBackupJson,
                 onImportBackup = viewModel::importBackupJson,
+                onOpenReadyTasksDb = { navController.navigate(ROUTE_READY_TASKS) },
+                onOpenRandomQuest = { showRandomSideQuestDialog = true },
+              )
+            }
+
+            composable(ROUTE_READY_TASKS) {
+              val existingTemplateIds = remember(uiState.tasks) {
+                uiState.tasks.mapNotNull { it.sourceTemplateId }.toSet()
+              }
+              ReadyTasksDatabaseScreen(
+                existingSourceTemplateIds = existingTemplateIds,
+                onAddTemplate = { tpl ->
+                  viewModel.addTaskFromTemplate(tpl, asInactive = true)
+                  openLibraryNonce++
+                },
+                onNavigateBack = { navController.popBackStack() },
               )
             }
 
@@ -467,6 +535,22 @@ fun GamefyRootScreen(
               onClick = { showExitTimerDialog = false },
             ) {
               Text("Zostań")
+            }
+          },
+        )
+      }
+
+      if (showRandomSideQuestDialog) {
+        AlertDialog(
+          onDismissRequest = { showRandomSideQuestDialog = false },
+          title = { Text("Random Side Quest") },
+          text = { Text("Sekcja gotowa do skonfigurowania.") },
+          confirmButton = {
+            TextButton(
+              modifier = Modifier.testTag("close_random_side_quest_dialog"),
+              onClick = { showRandomSideQuestDialog = false },
+            ) {
+              Text("Zamknij")
             }
           },
         )

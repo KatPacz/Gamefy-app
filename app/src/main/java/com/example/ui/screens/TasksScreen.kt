@@ -23,10 +23,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FilterList
@@ -51,6 +53,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -70,12 +73,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.local.FolderEntity
 import com.example.data.local.TaskEntity
 import com.example.data.local.parseIdCsv
+import com.example.data.local.parseSubtasksJson
+import com.example.data.model.OnboardingDetailPref
 import com.example.data.model.ReminderMode
 import com.example.data.model.TaskCategory
 import com.example.data.model.TaskSortDirection
 import com.example.data.model.TaskViewMode
+import com.example.data.model.formatFrequencyLabel
 import com.example.data.model.addLocalDaysMillis
 import com.example.data.model.addLocalMonthsMillis
 import com.example.data.model.defaultSortDirectionFor
@@ -92,6 +99,7 @@ import com.example.ui.components.PixelButton
 import com.example.ui.components.PixelCard
 import com.example.ui.components.PixelIcon
 import com.example.ui.components.TaskCardItem
+import com.example.ui.components.resolveFolderColor
 import com.example.ui.theme.BodyFontFamily
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
@@ -110,10 +118,14 @@ fun TasksScreen(
   onCompleteTask: (TaskEntity) -> Unit,
   onToggleSubtask: (TaskEntity, Long) -> Unit,
   onSkipTask: (TaskEntity) -> Unit,
+  onGiveUpTask: (TaskEntity) -> Unit = {},
   onApplyBulkUpdate: (Set<Long>, TaskCategory?, Int, Long?, ReminderMode?) -> Unit,
   onToggleTaskTimer: (Long, Int) -> Unit,
   onResetTaskTimer: (Long, Int) -> Unit,
   onDismissFocusView: () -> Unit = {},
+  onActivateTask: (Long) -> Unit = {},
+  onOpenRandomQuest: () -> Unit = {},
+  openLibraryTrigger: Int = 0,
   modifier: Modifier = Modifier,
 ) {
   val palette = LocalGamefyPalette.current
@@ -138,6 +150,7 @@ fun TasksScreen(
       onCompleteTask = { onCompleteTask(focusedTask) },
       onToggleSubtask = { subId -> onToggleSubtask(focusedTask, subId) },
       onSkipTask = { onSkipTask(focusedTask) },
+      onGiveUpTask = { onGiveUpTask(focusedTask) },
       onEditTask = { onEditTask(focusedTask.id) },
       modifier = modifier,
     )
@@ -172,7 +185,7 @@ fun TasksScreen(
     selectedCategoryFilter,
   ).size
 
-  val filteredTasks = remember(
+  val matchedByFilters = remember(
     uiState.tasks,
     selectedFolderId,
     searchQuery,
@@ -192,24 +205,40 @@ fun TasksScreen(
     }
   }
 
+  val filteredTasks = remember(matchedByFilters) {
+    matchedByFilters.filter { it.isActive }
+  }
+  val libraryTasks = remember(matchedByFilters) {
+    matchedByFilters.filter { !it.isActive }
+  }
+  val allLibraryTasksCount = remember(uiState.tasks) {
+    uiState.tasks.count { !it.isActive }
+  }
+  val emptyActiveMessage = if (libraryTasks.isNotEmpty() && activeFilterCount == 0 && selectedFolderId == null) {
+    "Brak aktywnych zadań. Aktywuj wybrane zadania z biblioteki powyżej lub dodaj nowe przyciskiem + Nowe."
+  } else {
+    "Brak aktywnych zadań spełniających wybrane kryteria."
+  }
+
   val activeTasks = remember(filteredTasks, now) {
     filteredTasks.filter { it.startTimestamp <= now }
   }
   val scheduledTasks = remember(filteredTasks, now) {
     filteredTasks.filter { it.startTimestamp > now }
   }
+  var showLibrarySection by remember(openLibraryTrigger) { mutableStateOf(true) }
 
   Column(
     modifier = modifier.fillMaxSize(),
     horizontalAlignment = Alignment.CenterHorizontally,
   ) {
-    // Top Action Bar: Clear Multi-Select (Checklist icon), Search/Filter button, + Nowe zadanie
+    // Top Action Bar: Multi-Select, Search/Filter, yellow Random Quest, + Nowe
     Row(
       modifier = Modifier
         .fillMaxWidth()
         .widthIn(max = 640.dp)
-        .padding(horizontal = 16.dp, vertical = 6.dp),
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
+        .padding(horizontal = 12.dp, vertical = 6.dp),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
       verticalAlignment = Alignment.CenterVertically,
     ) {
       Surface(
@@ -217,30 +246,19 @@ fun TasksScreen(
         color = if (isBulkMode) palette.accent else palette.surface,
         border = BorderStroke(2.dp, palette.outline),
         modifier = Modifier
-          .height(44.dp)
+          .size(44.dp)
           .clickable {
             isBulkMode = !isBulkMode
             selectedTaskIds = emptySet()
           }
           .testTag("bulk_edit_toggle"),
       ) {
-        Row(
-          modifier = Modifier.padding(horizontal = 10.dp),
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
+        Box(contentAlignment = Alignment.Center) {
           Icon(
-            imageVector = Icons.Default.Checklist,
-            contentDescription = "Edycja zbiorcza",
+            imageVector = if (isBulkMode) Icons.Default.Close else Icons.Default.Checklist,
+            contentDescription = if (isBulkMode) "Anuluj zaznaczanie" else "Edycja zbiorcza",
             tint = if (isBulkMode) Color.White else palette.textPrimary,
             modifier = Modifier.size(20.dp),
-          )
-          Text(
-            text = if (isBulkMode) "Anuluj" else "Zaznacz",
-            fontFamily = PixelFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
-            color = if (isBulkMode) Color.White else palette.textPrimary,
           )
         }
       }
@@ -255,7 +273,7 @@ fun TasksScreen(
           .testTag("filter_toggle"),
       ) {
         Row(
-          modifier = Modifier.padding(horizontal = 10.dp),
+          modifier = Modifier.padding(horizontal = if (activeFilterCount > 0) 8.dp else 11.dp),
           verticalAlignment = Alignment.CenterVertically,
           horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
@@ -278,8 +296,30 @@ fun TasksScreen(
       }
 
       PixelButton(
+        text = "Random Quest",
+        compact = true,
+        horizontalPadding = 8.dp,
+        fontSize = 11.sp,
+        containerColor = PixelColors.Gold,
+        contentColor = palette.outline,
+        modifier = Modifier
+          .weight(1f)
+          .testTag("tasks_random_quest_button"),
+        leadingIcon = {
+          Icon(
+            imageVector = Icons.Default.Casino,
+            contentDescription = null,
+            tint = palette.outline,
+            modifier = Modifier.size(16.dp),
+          )
+        },
+        onClick = onOpenRandomQuest,
+      )
+
+      PixelButton(
         text = "Nowe",
         compact = true,
+        horizontalPadding = 10.dp,
         modifier = Modifier
           .weight(1f)
           .testTag("new_task_button"),
@@ -296,16 +336,18 @@ fun TasksScreen(
     }
 
     // Browser-style Folder Tabs at the top (Main tab = Wszystkie)
+    val selectedFolder = if (safeTabIndex == 0) null else uiState.folders[safeTabIndex - 1]
+    val activeTabIndicatorColor = selectedFolder?.let { resolveFolderColor(it) } ?: palette.accent
     ScrollableTabRow(
       selectedTabIndex = safeTabIndex,
       containerColor = palette.surface,
-      contentColor = palette.accent,
+      contentColor = activeTabIndicatorColor,
       edgePadding = 12.dp,
       indicator = { tabPositions ->
         if (safeTabIndex < tabPositions.size) {
           TabRowDefaults.SecondaryIndicator(
             modifier = Modifier.tabIndicatorOffset(tabPositions[safeTabIndex]),
-            color = palette.accent,
+            color = activeTabIndicatorColor,
             height = 3.dp,
           )
         }
@@ -326,6 +368,7 @@ fun TasksScreen(
       )
       uiState.folders.forEachIndexed { idx, folder ->
         val tabIdx = idx + 1
+        val folderColor = resolveFolderColor(folder)
         Tab(
           selected = safeTabIndex == tabIdx,
           onClick = { selectedTabIndex = tabIdx },
@@ -334,6 +377,12 @@ fun TasksScreen(
               verticalAlignment = Alignment.CenterVertically,
               horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+              Box(
+                modifier = Modifier
+                  .size(8.dp)
+                  .clip(CircleShape)
+                  .background(folderColor),
+              )
               PixelIcon(icon = folder.icon, size = 16.dp)
               Text(
                 text = folder.name,
@@ -491,6 +540,47 @@ fun TasksScreen(
       contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+      if (libraryTasks.isNotEmpty()) {
+        item(key = "personal_library_section") {
+          PersonalLibraryCard(
+            libraryTasks = libraryTasks,
+            folders = uiState.folders,
+            expanded = showLibrarySection,
+            onToggleExpand = { showLibrarySection = !showLibrarySection },
+            onActivateTask = onActivateTask,
+            onEditTask = onEditTask,
+          )
+        }
+      } else if (allLibraryTasksCount > 0) {
+        item(key = "personal_library_hidden_notice") {
+          PixelCard(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+              Text(
+                text = "Masz nieaktywne zadania w bibliotece ($allLibraryTasksCount), ukryte przez aktywny filtr.",
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.textMuted,
+                modifier = Modifier.weight(1f),
+              )
+              TextButton(
+                onClick = {
+                  selectedTabIndex = 0
+                  searchQuery = ""
+                  selectedTagIdFilter = null
+                  selectedCategoryFilter = null
+                  showLibrarySection = true
+                },
+              ) {
+                Text("Pokaż", color = palette.accent, fontWeight = FontWeight.Bold)
+              }
+            }
+          }
+        }
+      }
+
       when (selectedView) {
         TaskViewMode.TIME_LEFT -> {
           val sortedActive = sortTasksByTimeLeft(activeTasks, sortDirection)
@@ -498,7 +588,7 @@ fun TasksScreen(
             item {
               PixelCard {
                 Text(
-                  text = "Brak aktywnych zadań spełniających wybrane kryteria.",
+                  text = emptyActiveMessage,
                   style = MaterialTheme.typography.bodyMedium,
                   color = palette.textMuted,
                   modifier = Modifier.padding(vertical = 8.dp),
@@ -519,6 +609,7 @@ fun TasksScreen(
               onCompleteTask = onCompleteTask,
               onToggleSubtask = onToggleSubtask,
               onSkipTask = onSkipTask,
+              onGiveUpTask = onGiveUpTask,
               onEditTask = onEditTask,
               onToggleSelect = toggleSelectFn,
               onToggleTaskTimer = onToggleTaskTimer,
@@ -539,6 +630,7 @@ fun TasksScreen(
               onCompleteTask = onCompleteTask,
               onToggleSubtask = onToggleSubtask,
               onSkipTask = onSkipTask,
+              onGiveUpTask = onGiveUpTask,
               onEditTask = onEditTask,
               onToggleSelect = toggleSelectFn,
               onToggleTaskTimer = onToggleTaskTimer,
@@ -553,7 +645,7 @@ fun TasksScreen(
             item {
               PixelCard {
                 Text(
-                  text = "Brak aktywnych zadań spełniających wybrane kryteria.",
+                  text = emptyActiveMessage,
                   style = MaterialTheme.typography.bodyMedium,
                   color = palette.textMuted,
                   modifier = Modifier.padding(vertical = 8.dp),
@@ -576,6 +668,7 @@ fun TasksScreen(
                 onCompleteTask = onCompleteTask,
                 onToggleSubtask = onToggleSubtask,
                 onSkipTask = onSkipTask,
+                onGiveUpTask = onGiveUpTask,
                 onEditTask = onEditTask,
                 onToggleSelect = toggleSelectFn,
                 onToggleTaskTimer = onToggleTaskTimer,
@@ -597,6 +690,7 @@ fun TasksScreen(
               onCompleteTask = onCompleteTask,
               onToggleSubtask = onToggleSubtask,
               onSkipTask = onSkipTask,
+              onGiveUpTask = onGiveUpTask,
               onEditTask = onEditTask,
               onToggleSelect = toggleSelectFn,
               onToggleTaskTimer = onToggleTaskTimer,
@@ -611,7 +705,7 @@ fun TasksScreen(
             item {
               PixelCard {
                 Text(
-                  text = "Brak aktywnych zadań spełniających wybrane kryteria.",
+                  text = emptyActiveMessage,
                   style = MaterialTheme.typography.bodyMedium,
                   color = palette.textMuted,
                   modifier = Modifier.padding(vertical = 8.dp),
@@ -634,6 +728,7 @@ fun TasksScreen(
                 onCompleteTask = onCompleteTask,
                 onToggleSubtask = onToggleSubtask,
                 onSkipTask = onSkipTask,
+                onGiveUpTask = onGiveUpTask,
                 onEditTask = onEditTask,
                 onToggleSelect = toggleSelectFn,
                 onToggleTaskTimer = onToggleTaskTimer,
@@ -655,6 +750,7 @@ fun TasksScreen(
               onCompleteTask = onCompleteTask,
               onToggleSubtask = onToggleSubtask,
               onSkipTask = onSkipTask,
+              onGiveUpTask = onGiveUpTask,
               onEditTask = onEditTask,
               onToggleSelect = toggleSelectFn,
               onToggleTaskTimer = onToggleTaskTimer,
@@ -670,7 +766,7 @@ fun TasksScreen(
             item {
               PixelCard {
                 Text(
-                  text = "Brak aktywnych zadań spełniających wybrane kryteria.",
+                  text = emptyActiveMessage,
                   style = MaterialTheme.typography.bodyMedium,
                   color = palette.textMuted,
                   modifier = Modifier.padding(vertical = 8.dp),
@@ -693,6 +789,7 @@ fun TasksScreen(
               onCompleteTask = onCompleteTask,
               onToggleSubtask = onToggleSubtask,
               onSkipTask = onSkipTask,
+              onGiveUpTask = onGiveUpTask,
               onEditTask = onEditTask,
               onToggleSelect = toggleSelectFn,
               onToggleTaskTimer = onToggleTaskTimer,
@@ -714,6 +811,7 @@ fun TasksScreen(
               onCompleteTask = onCompleteTask,
               onToggleSubtask = onToggleSubtask,
               onSkipTask = onSkipTask,
+              onGiveUpTask = onGiveUpTask,
               onEditTask = onEditTask,
               onToggleSelect = toggleSelectFn,
               onToggleTaskTimer = onToggleTaskTimer,
@@ -762,6 +860,7 @@ fun TasksScreen(
               onCompleteTask = onCompleteTask,
               onToggleSubtask = onToggleSubtask,
               onSkipTask = onSkipTask,
+              onGiveUpTask = onGiveUpTask,
               onEditTask = onEditTask,
               onToggleSelect = toggleSelectFn,
               onToggleTaskTimer = onToggleTaskTimer,
@@ -788,6 +887,7 @@ fun TasksScreen(
               onCompleteTask = onCompleteTask,
               onToggleSubtask = onToggleSubtask,
               onSkipTask = onSkipTask,
+              onGiveUpTask = onGiveUpTask,
               onEditTask = onEditTask,
               onToggleSelect = toggleSelectFn,
               onToggleTaskTimer = onToggleTaskTimer,
@@ -810,6 +910,7 @@ fun TasksScreen(
               onCompleteTask = onCompleteTask,
               onToggleSubtask = onToggleSubtask,
               onSkipTask = onSkipTask,
+              onGiveUpTask = onGiveUpTask,
               onEditTask = onEditTask,
               onToggleSelect = toggleSelectFn,
               onToggleTaskTimer = onToggleTaskTimer,
@@ -855,6 +956,7 @@ fun TasksScreen(
               onCompleteTask = onCompleteTask,
               onToggleSubtask = onToggleSubtask,
               onSkipTask = onSkipTask,
+              onGiveUpTask = onGiveUpTask,
               onEditTask = onEditTask,
               onToggleSelect = toggleSelectFn,
               onToggleTaskTimer = onToggleTaskTimer,
@@ -904,6 +1006,7 @@ fun TasksScreen(
                 onCompleteTask = onCompleteTask,
                 onToggleSubtask = onToggleSubtask,
                 onSkipTask = onSkipTask,
+                onGiveUpTask = onGiveUpTask,
                 onEditTask = onEditTask,
                 onToggleSelect = toggleSelectFn,
                 onToggleTaskTimer = onToggleTaskTimer,
@@ -927,6 +1030,7 @@ fun TasksScreen(
               onCompleteTask = onCompleteTask,
               onToggleSubtask = onToggleSubtask,
               onSkipTask = onSkipTask,
+              onGiveUpTask = onGiveUpTask,
               onEditTask = onEditTask,
               onToggleSelect = toggleSelectFn,
               onToggleTaskTimer = onToggleTaskTimer,
@@ -1039,8 +1143,22 @@ private fun BulkEditPanel(
             onClick = { chosenFolderId = 0L; folderExpanded = false },
           )
           uiState.folders.forEach { f ->
+            val folderColor = resolveFolderColor(f)
             DropdownMenuItem(
-              text = { Text(f.name) },
+              text = {
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  Box(
+                    modifier = Modifier
+                      .size(10.dp)
+                      .clip(CircleShape)
+                      .background(folderColor),
+                  )
+                  Text(f.name)
+                }
+              },
               onClick = { chosenFolderId = f.id; folderExpanded = false },
             )
           }
@@ -1114,6 +1232,7 @@ private fun TaskFocusModeContent(
   onCompleteTask: () -> Unit,
   onToggleSubtask: (Long) -> Unit,
   onSkipTask: () -> Unit,
+  onGiveUpTask: () -> Unit = {},
   onEditTask: () -> Unit,
   modifier: Modifier = Modifier,
 ) {
@@ -1325,31 +1444,167 @@ private fun TaskFocusModeContent(
       }
 
       item {
-        PixelCard(contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)) {
-          TaskCardItem(
-            task = task,
-            folders = uiState.folders,
-            attributes = uiState.attributes,
-            tags = uiState.tags,
-            isActive = true,
-            isExpanded = showDetails,
-            isBulkMode = false,
-            isSelected = false,
-            inlineTimer = inlineTimer,
-            onToggleExpand = { showDetails = !showDetails },
-            onComplete = onCompleteTask,
-            onToggleSubtask = onToggleSubtask,
-            onSkip = onSkipTask,
-            onEdit = onEditTask,
-            onToggleSelect = {},
-            onToggleTaskTimer = onToggleTaskTimer,
-            onResetTaskTimer = onResetTaskTimer,
-            showInlineTimer = false,
-          )
-        }
+        TaskCardItem(
+          task = task,
+          folders = uiState.folders,
+          attributes = uiState.attributes,
+          tags = uiState.tags,
+          isActive = true,
+          isExpanded = showDetails,
+          isBulkMode = false,
+          isSelected = false,
+          inlineTimer = inlineTimer,
+          onToggleExpand = { showDetails = !showDetails },
+          onComplete = onCompleteTask,
+          onToggleSubtask = onToggleSubtask,
+          onSkip = onSkipTask,
+          onGiveUp = onGiveUpTask,
+          onEdit = onEditTask,
+          onToggleSelect = {},
+          onToggleTaskTimer = onToggleTaskTimer,
+          onResetTaskTimer = onResetTaskTimer,
+          showInlineTimer = false,
+          detailPref = OnboardingDetailPref.fromId(uiState.profile.onboardingDetailPref),
+        )
       }
 
       item { Spacer(modifier = Modifier.height(16.dp)) }
+    }
+  }
+}
+
+@Composable
+private fun PersonalLibraryCard(
+  libraryTasks: List<TaskEntity>,
+  folders: List<FolderEntity>,
+  expanded: Boolean,
+  onToggleExpand: () -> Unit,
+  onActivateTask: (Long) -> Unit,
+  onEditTask: (Long) -> Unit,
+) {
+  val palette = LocalGamefyPalette.current
+  PixelCard(
+    contentPadding = PaddingValues(14.dp),
+    modifier = Modifier.testTag("personal_library_card"),
+  ) {
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .clickable(onClick = onToggleExpand),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+          text = "BIBLIOTEKA ZADAŃ · NIEAKTYWNE (${libraryTasks.size})",
+          fontFamily = PixelFontFamily,
+          fontWeight = FontWeight.Bold,
+          fontSize = 12.sp,
+          color = palette.accent,
+        )
+        Text(
+          text = "Aktywuj wybrane zadania lub edytuj ich częstotliwość, gdy będziesz gotowy.",
+          style = MaterialTheme.typography.bodySmall,
+          color = palette.textMuted,
+        )
+      }
+      Text(
+        text = if (expanded) "Zwiń ▴" else "Rozwiń ▾",
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        color = palette.accent,
+      )
+    }
+
+    if (expanded) {
+      Spacer(modifier = Modifier.height(10.dp))
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        libraryTasks.forEach { task ->
+          val subtasksCount = remember(task.subtasksJson) { parseSubtasksJson(task.subtasksJson).size }
+          val category = TaskCategory.fromCode(task.categoryCode)
+          val folder = folders.find { it.id == task.folderId }
+          val folderColor = folder?.let { resolveFolderColor(it) }
+          Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = palette.background,
+            border = BorderStroke(
+              width = if (folderColor != null) 2.dp else 1.5.dp,
+              color = folderColor ?: palette.divider,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+          ) {
+            Column(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+              verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+              ) {
+                if (folder != null && folderColor != null) {
+                  Box(
+                    modifier = Modifier
+                      .size(9.dp)
+                      .clip(CircleShape)
+                      .background(folderColor),
+                  )
+                }
+                Text(
+                  text = task.name,
+                  style = MaterialTheme.typography.bodyLarge,
+                  fontWeight = FontWeight.Bold,
+                  color = palette.textPrimary,
+                )
+              }
+              val metaParts = buildList {
+                if (folder != null) add("${folder.icon} ${folder.name}")
+                if (task.durationMinutes > 0) add("⏱ ${task.durationMinutes} min")
+                add(formatFrequencyLabel(category, task.repeatInterval))
+                add("+${task.expReward} EXP · +${task.coinReward} 🪙")
+                if (subtasksCount > 0) {
+                  val subLabel = when {
+                    subtasksCount == 1 -> "1 podzadanie"
+                    subtasksCount % 10 in 2..4 && subtasksCount % 100 !in 12..14 -> "$subtasksCount podzadania"
+                    else -> "$subtasksCount podzadań"
+                  }
+                  add("📋 $subLabel")
+                }
+              }
+              Text(
+                text = metaParts.joinToString("  ·  "),
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textMuted,
+              )
+              Spacer(modifier = Modifier.height(2.dp))
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+              ) {
+                PixelButton(
+                  text = "Aktywuj",
+                  compact = true,
+                  modifier = Modifier
+                    .weight(1f)
+                    .testTag("activate_library_task_${task.id}"),
+                  onClick = { onActivateTask(task.id) },
+                )
+                PixelButton(
+                  text = "Edytuj",
+                  compact = true,
+                  containerColor = palette.surfaceSubtle,
+                  contentColor = palette.textPrimary,
+                  modifier = Modifier
+                    .weight(1f)
+                    .testTag("edit_library_task_${task.id}"),
+                  onClick = { onEditTask(task.id) },
+                )
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

@@ -88,6 +88,7 @@ import com.example.ui.components.PixelButton
 import com.example.ui.components.PixelCard
 import com.example.ui.components.PixelIcon
 import com.example.ui.components.PixelProgressBar
+import com.example.ui.components.resolveFolderColor
 import com.example.ui.theme.BodyFontFamily
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
@@ -120,7 +121,7 @@ fun ProfileScreen(
   onAddAttribute: (String, String) -> Unit,
   onUpdateAttribute: (AttributeEntity) -> Unit,
   onDeleteAttribute: (Long) -> Unit,
-  onAddFolder: (String, String) -> Unit,
+  onAddFolder: (String, String, String) -> Unit,
   onUpdateFolder: (FolderEntity) -> Unit,
   onDeleteFolder: (Long) -> Unit,
   onCreateOrFindTag: suspend (String) -> TagEntity,
@@ -131,6 +132,8 @@ fun ProfileScreen(
   onUpdateNotificationSettings: (NotificationSettings) -> Unit,
   onExportBackup: suspend () -> String,
   onImportBackup: (String) -> Unit,
+  onOpenReadyTasksDb: () -> Unit = {},
+  onOpenRandomQuest: () -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
   val palette = LocalGamefyPalette.current
@@ -146,8 +149,6 @@ fun ProfileScreen(
   var showAddAttributeDialog by remember { mutableStateOf(false) }
   var showFolderManagerDialog by remember { mutableStateOf(false) }
   var showTagEditorDialog by remember { mutableStateOf(false) }
-  var showReadyTasksDialog by remember { mutableStateOf(false) }
-  var showRandomSideQuestDialog by remember { mutableStateOf(false) }
 
   LaunchedEffect(scrollToAchievementsTrigger) {
     if (scrollToAchievementsTrigger > 0) {
@@ -478,21 +479,57 @@ fun ProfileScreen(
                   verticalAlignment = Alignment.CenterVertically,
                   horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                  Column(modifier = Modifier.weight(1f)) {
+                  Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                  ) {
                     Text(
-                      text = "Foldery (${uiState.folders.size})",
+                      text = "Kategorie i foldery (${uiState.folders.size})",
                       style = MaterialTheme.typography.titleSmall,
                       fontWeight = FontWeight.Bold,
                       color = palette.textPrimary,
                     )
-                    Text(
-                      text = uiState.folders.take(4).joinToString(" · ") { "${it.icon} ${it.name}" }
-                        .ifBlank { "Brak własnych folderów" },
-                      style = MaterialTheme.typography.bodySmall,
-                      color = palette.textMuted,
-                      maxLines = 1,
-                      overflow = TextOverflow.Ellipsis,
-                    )
+                    if (uiState.folders.isEmpty()) {
+                      Text(
+                        text = "Brak własnych kategorii",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = palette.textMuted,
+                      )
+                    } else {
+                      FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                      ) {
+                        uiState.folders.take(6).forEach { folder ->
+                          val folderColor = resolveFolderColor(folder)
+                          Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = folderColor.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, folderColor),
+                          ) {
+                            Row(
+                              modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                              verticalAlignment = Alignment.CenterVertically,
+                              horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                              Box(
+                                modifier = Modifier
+                                  .size(8.dp)
+                                  .clip(CircleShape)
+                                  .background(folderColor),
+                              )
+                              Text(
+                                text = folder.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.textPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                              )
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
                   Spacer(modifier = Modifier.width(8.dp))
                   PixelButton(
@@ -561,8 +598,13 @@ fun ProfileScreen(
                 )
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Text(
+                    text = "Przeglądaj przykładowe zadania i dodawaj je do swojej biblioteki.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.textMuted,
+                  )
                   PixelButton(
-                    text = "Baza Gotowych Zadań",
+                    text = "Baza gotowych zadań",
                     compact = true,
                     modifier = Modifier
                       .fillMaxWidth()
@@ -575,14 +617,14 @@ fun ProfileScreen(
                         modifier = Modifier.size(16.dp),
                       )
                     },
-                    onClick = { showReadyTasksDialog = true },
+                    onClick = onOpenReadyTasksDb,
                   )
 
                   PixelButton(
                     text = "Random Side Quest",
                     compact = true,
-                    containerColor = PixelColors.Orange,
-                    contentColor = Color.White,
+                    containerColor = PixelColors.Gold,
+                    contentColor = palette.outline,
                     modifier = Modifier
                       .fillMaxWidth()
                       .testTag("open_random_side_quest_button"),
@@ -590,11 +632,11 @@ fun ProfileScreen(
                       Icon(
                         imageVector = Icons.Default.Casino,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = palette.outline,
                         modifier = Modifier.size(16.dp),
                       )
                     },
-                    onClick = { showRandomSideQuestDialog = true },
+                    onClick = onOpenRandomQuest,
                   )
                 }
               }
@@ -785,32 +827,6 @@ fun ProfileScreen(
       onUpdateTag = onUpdateTag,
       onDeleteTag = onDeleteTag,
       onDismiss = { showTagEditorDialog = false },
-    )
-  }
-
-  if (showReadyTasksDialog) {
-    AlertDialog(
-      onDismissRequest = { showReadyTasksDialog = false },
-      title = { Text("Baza Gotowych Zadań") },
-      text = { Text("Sekcja gotowa do skonfigurowania.") },
-      confirmButton = {
-        TextButton(onClick = { showReadyTasksDialog = false }) {
-          Text("Zamknij")
-        }
-      },
-    )
-  }
-
-  if (showRandomSideQuestDialog) {
-    AlertDialog(
-      onDismissRequest = { showRandomSideQuestDialog = false },
-      title = { Text("Random Side Quest") },
-      text = { Text("Sekcja gotowa do skonfigurowania.") },
-      confirmButton = {
-        TextButton(onClick = { showRandomSideQuestDialog = false }) {
-          Text("Zamknij")
-        }
-      },
     )
   }
 }

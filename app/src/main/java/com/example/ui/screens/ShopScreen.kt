@@ -30,14 +30,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CardGiftcard
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,8 +49,10 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -63,8 +69,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.data.local.ShopItemEntity
+import com.example.data.model.OnboardingRewardPref
 import com.example.data.model.PurchaseLimitPeriod
+import com.example.data.model.REWARD_CATALOG_TEMPLATES
+import com.example.data.model.RewardCatalogTemplate
 import com.example.data.model.calculateLevel
 import com.example.ui.GamefyUiState
 import com.example.ui.components.LinkifiedText
@@ -83,13 +93,19 @@ fun ShopScreen(
   onSaveItem: (ShopItemEntity) -> Unit,
   onDeleteItem: (Long) -> Unit,
   onCompressImageUri: suspend (Uri) -> String?,
+  onAddRewardFromCatalog: (RewardCatalogTemplate, Int) -> Unit = { _, _ -> },
   modifier: Modifier = Modifier,
 ) {
   val palette = LocalGamefyPalette.current
   val scope = rememberCoroutineScope()
   var isEditMode by remember { mutableStateOf(false) }
+  var showRewardCatalog by remember { mutableStateOf(false) }
   var expandedEditItemId by remember { mutableStateOf<Long?>(null) }
   var pendingImageItemId by remember { mutableStateOf<Long?>(null) }
+
+  val existingRewardTemplateIds = remember(uiState.shopItems) {
+    uiState.shopItems.mapNotNull { it.sourceRewardTemplateId }.toSet()
+  }
 
   val photoPickerLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.PickVisualMedia(),
@@ -110,29 +126,53 @@ fun ShopScreen(
     modifier = modifier.fillMaxSize(),
     horizontalAlignment = Alignment.CenterHorizontally,
   ) {
-    PixelButton(
-      text = if (isEditMode) "Gotowe" else "Edytuj nagrody",
-      compact = true,
-      containerColor = if (isEditMode) palette.accent else palette.surface,
-      contentColor = if (isEditMode) Color.White else palette.textPrimary,
+    Row(
       modifier = Modifier
         .widthIn(max = 640.dp)
         .fillMaxWidth()
-        .padding(horizontal = 16.dp, vertical = 8.dp)
-        .testTag("toggle_shop_edit"),
-      leadingIcon = {
-        Icon(
-          imageVector = Icons.Default.Edit,
-          contentDescription = null,
-          tint = if (isEditMode) Color.White else palette.textPrimary,
-          modifier = Modifier.size(16.dp),
-        )
-      },
-      onClick = {
-        isEditMode = !isEditMode
-        expandedEditItemId = null
-      },
-    )
+        .padding(horizontal = 16.dp, vertical = 8.dp),
+      horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+      PixelButton(
+        text = if (isEditMode) "Gotowe" else "Edytuj nagrody",
+        compact = true,
+        containerColor = if (isEditMode) palette.accent else palette.surface,
+        contentColor = if (isEditMode) Color.White else palette.textPrimary,
+        modifier = Modifier
+          .weight(1f)
+          .testTag("toggle_shop_edit"),
+        leadingIcon = {
+          Icon(
+            imageVector = Icons.Default.Edit,
+            contentDescription = null,
+            tint = if (isEditMode) Color.White else palette.textPrimary,
+            modifier = Modifier.size(16.dp),
+          )
+        },
+        onClick = {
+          isEditMode = !isEditMode
+          expandedEditItemId = null
+        },
+      )
+      PixelButton(
+        text = "Katalog nagród",
+        compact = true,
+        containerColor = palette.surfaceSubtle,
+        contentColor = palette.accent,
+        modifier = Modifier
+          .weight(1f)
+          .testTag("open_reward_catalog_button"),
+        leadingIcon = {
+          Icon(
+            imageVector = Icons.Default.CardGiftcard,
+            contentDescription = null,
+            tint = palette.accent,
+            modifier = Modifier.size(16.dp),
+          )
+        },
+        onClick = { showRewardCatalog = true },
+      )
+    }
 
     if (isEditMode) {
       LazyColumn(
@@ -184,6 +224,66 @@ fun ShopScreen(
               )
             },
           )
+        }
+      }
+    } else if (uiState.shopItems.isEmpty()) {
+      Box(
+        modifier = Modifier
+          .fillMaxSize()
+          .padding(horizontal = 16.dp, vertical = 12.dp),
+        contentAlignment = Alignment.TopCenter,
+      ) {
+        PixelCard(modifier = Modifier.widthIn(max = 560.dp)) {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            PixelIcon(icon = "bag", size = 44.dp)
+            Text(
+              text = "Twój sklep jest jeszcze pusty",
+              style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold,
+              color = palette.textPrimary,
+            )
+            Text(
+              text = "Dodaj własne nagrody albo wybierz gotowe propozycje z katalogu nagród. Wszystkie ceny i nazwy możesz dowolnie edytować.",
+              style = MaterialTheme.typography.bodySmall,
+              color = palette.textMuted,
+              textAlign = TextAlign.Center,
+            )
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              PixelButton(
+                text = "Otwórz katalog",
+                compact = true,
+                modifier = Modifier.weight(1f),
+                onClick = { showRewardCatalog = true },
+              )
+              PixelButton(
+                text = "Dodaj własną",
+                compact = true,
+                containerColor = palette.surfaceSubtle,
+                contentColor = palette.textPrimary,
+                modifier = Modifier.weight(1f),
+                onClick = {
+                  onSaveItem(
+                    ShopItemEntity(
+                      icon = "🎁",
+                      name = "Nowa nagroda",
+                      coinPrice = 50,
+                      gemPrice = 0,
+                    )
+                  )
+                  isEditMode = true
+                },
+              )
+            }
+          }
         }
       }
     } else {
@@ -345,6 +445,150 @@ fun ShopScreen(
       }
     }
   }
+
+  if (showRewardCatalog) {
+    RewardCatalogDialog(
+      existingTemplateIds = existingRewardTemplateIds,
+      onAddTemplate = onAddRewardFromCatalog,
+      onDismiss = { showRewardCatalog = false },
+    )
+  }
+}
+
+@Composable
+private fun RewardCatalogDialog(
+  existingTemplateIds: Set<String>,
+  onAddTemplate: (RewardCatalogTemplate, Int) -> Unit,
+  onDismiss: () -> Unit,
+) {
+  val palette = LocalGamefyPalette.current
+  val customPrices = remember {
+    mutableStateMapOf<String, String>().apply {
+      REWARD_CATALOG_TEMPLATES.forEach { put(it.id, it.defaultCoinPrice.toString()) }
+    }
+  }
+
+  AlertDialog(
+    onDismissRequest = onDismiss,
+    title = {
+      Column {
+        Text(
+          text = "Katalog gotowych nagród",
+          style = MaterialTheme.typography.titleMedium,
+          fontWeight = FontWeight.Bold,
+        )
+        Text(
+          text = "Wybierz nagrody i dopasuj ich cenę w monetach.",
+          style = MaterialTheme.typography.bodySmall,
+          color = palette.textMuted,
+        )
+      }
+    },
+    text = {
+      LazyColumn(
+        modifier = Modifier.height(420.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        OnboardingRewardPref.entries.forEach { category ->
+          val itemsInCat = REWARD_CATALOG_TEMPLATES.filter { it.category == category }
+          item(key = "cat_${category.id}") {
+            Text(
+              text = "${category.icon} ${category.label.uppercase()}",
+              style = MaterialTheme.typography.labelSmall,
+              fontWeight = FontWeight.Bold,
+              color = palette.accent,
+              modifier = Modifier.padding(top = 6.dp),
+            )
+          }
+          items(itemsInCat, key = { it.id }) { tpl ->
+            val alreadyInShop = tpl.id in existingTemplateIds
+            val priceText = customPrices[tpl.id] ?: tpl.defaultCoinPrice.toString()
+            Surface(
+              shape = RoundedCornerShape(12.dp),
+              color = palette.surfaceSubtle,
+              modifier = Modifier.fillMaxWidth(),
+            ) {
+              Column(
+                modifier = Modifier.padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+              ) {
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  Text(text = tpl.icon, fontSize = 20.sp)
+                  Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                      text = tpl.name,
+                      style = MaterialTheme.typography.bodyMedium,
+                      fontWeight = FontWeight.SemiBold,
+                      color = palette.textPrimary,
+                    )
+                    if (tpl.description.isNotBlank()) {
+                      Text(
+                        text = tpl.description,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textMuted,
+                      )
+                    }
+                  }
+                }
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                  OutlinedTextField(
+                    value = priceText,
+                    onValueChange = { customPrices[tpl.id] = it.filter(Char::isDigit) },
+                    label = { Text("Monety") },
+                    singleLine = true,
+                    enabled = !alreadyInShop,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.width(108.dp),
+                  )
+                  Spacer(modifier = Modifier.weight(1f))
+                  if (alreadyInShop) {
+                    Row(
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                      Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = PixelColors.GreenDark,
+                        modifier = Modifier.size(16.dp),
+                      )
+                      Text(
+                        text = "W sklepie",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = PixelColors.GreenDark,
+                      )
+                    }
+                  } else {
+                    PixelButton(
+                      text = "Dodaj",
+                      compact = true,
+                      modifier = Modifier.testTag("add_catalog_reward_${tpl.id}"),
+                      onClick = {
+                        val price = (priceText.toIntOrNull() ?: tpl.defaultCoinPrice).coerceAtLeast(0)
+                        onAddTemplate(tpl, price)
+                      },
+                    )
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    confirmButton = {
+      TextButton(onClick = onDismiss) {
+        Text("Zamknij")
+      }
+    },
+  )
 }
 
 @Composable

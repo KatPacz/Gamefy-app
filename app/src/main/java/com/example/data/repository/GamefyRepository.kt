@@ -13,9 +13,13 @@ import com.example.data.local.PlayerProfileEntity
 import com.example.data.local.ShopItemEntity
 import com.example.data.local.TagEntity
 import com.example.data.local.TaskEntity
+import com.example.data.local.SubtaskItem
+import com.example.data.local.defaultColorHexForFolder
+import com.example.data.local.normalizeColorHex
 import com.example.data.local.parseIdCsv
 import com.example.data.local.parseStringCsv
 import com.example.data.local.parseSubtasksJson
+import com.example.data.local.resolvedColorHex
 import com.example.data.local.toIdCsv
 import com.example.data.local.toStringCsv
 import com.example.data.local.toSubtasksJson
@@ -27,19 +31,31 @@ import com.example.data.model.MILLIS_PER_DAY
 import com.example.data.model.MILLIS_PER_HOUR
 import com.example.data.model.NotificationSettings
 import com.example.data.model.NotificationTriggerMode
+import com.example.data.model.OnboardingArea
+import com.example.data.model.OnboardingDetailPref
+import com.example.data.model.OnboardingRewardPref
+import com.example.data.model.OnboardingTimePref
 import com.example.data.model.PenaltyMode
 import com.example.data.model.PlayerStatsSnapshot
 import com.example.data.model.PurchaseLimitPeriod
+import com.example.data.model.READY_TASK_TEMPLATES
+import com.example.data.model.REWARD_CATALOG_TEMPLATES
+import com.example.data.model.ReadyTaskTemplate
 import com.example.data.model.ReminderMode
+import com.example.data.model.RewardCatalogTemplate
 import com.example.data.model.TaskCategory
 import com.example.data.model.buildSummaryNotificationText
 import com.example.data.model.calculateLevel
+import com.example.data.model.distributeWeightedExp
 import com.example.data.model.formatDurationShort
 import com.example.data.model.isTaskPreferredTimeReached
 import com.example.data.model.isWithinNotificationSchedule
 import com.example.data.model.localEpochDay
 import com.example.data.model.nextCycleTimestamp
+import com.example.data.model.parseAttributeWeightsJson
+import com.example.data.model.resolveGiveUpPenaltyRange
 import com.example.data.model.tasksPlannedForDay
+import com.example.data.model.toAttributeWeightsJson
 import com.example.data.model.toNotificationSettings
 import com.example.data.model.withNotificationSettings
 import java.io.ByteArrayOutputStream
@@ -49,6 +65,8 @@ import kotlin.random.Random
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -59,6 +77,8 @@ data class RewardOutcome(
 )
 
 class GamefyRepository(private val dao: GamefyDao) {
+  private val completionMutex = Mutex()
+  private val templateAddMutex = Mutex()
 
   val profile: Flow<PlayerProfileEntity> =
     dao.observeProfile().map { it ?: PlayerProfileEntity() }
@@ -69,32 +89,37 @@ class GamefyRepository(private val dao: GamefyDao) {
   val shopItems: Flow<List<ShopItemEntity>> = dao.observeShopItems()
   val activityEvents: Flow<List<ActivityEventEntity>> = dao.observeActivityEvents()
 
-  suspend fun completeTask(task: TaskEntity, fromSubtaskChain: Boolean = false): RewardOutcome {
-    val now = System.currentTimeMillis()
-    if (task.startTimestamp > now) return RewardOutcome()
-
-    val onTime = task.dueTimestamp == null || now <= task.dueTimestamp
-    val category = TaskCategory.fromCode(task.categoryCode)
-    val newCount = task.completedCount + 1
-    val isFinished =
-      category == TaskCategory.SIDEQUEST || (task.repeatLimit > 0 && newCount >= task.repeatLimit)
-
-    var itemSuffix = ""
-    if (task.rewardItemId > 0L) {
-      val shopItem = dao.getShopItemsOnce().find { it.id == task.rewardItemId }
-      if (shopItem != null) {
-        dao.updateShopItem(shopItem.copy(ownedQuantity = shopItem.ownedQuantity + 1))
-        itemSuffix = " 🎁 ${shopItem.name}"
+  suspend fun completeTask(task: TaskEntity, fromSubtaskChain: Boolean = false): RewardOutcome =
+    completionMutex.withLock {
+      val now = System.currentTimeMillis()
+      val currentTask = dao.getTaskByIdOnce(task.id) ?: return@withLock RewardOutcome()
+      if (!currentTask.isActive || currentTask.startTimestamp > now) {
+        return@withLock RewardOutcome()
       }
-    }
 
-    if (isFinished) {
-      dao.deleteTaskById(task.id)
-    } else {
-      val (nextStart, nextDue) = advanceCycle(task, now)
-      val resetSubtasks = parseSubtasksJson(task.subtasksJson).map { it.copy(isDone = false) }
-      dao.updateTask(
-        task.copy(
+      val onTime = currentTask.dueTimestamp == null || now <= currentTask.dueTimestamp
+      val category = TaskCategory.fromCode(currentTask.categoryCode)
+      val newCount = currentTask.completedCount + 1
+      val isFinished =
+        category == TaskCategory.SIDEQUEST || (currentTask.repeatLimit > 0 && newCount >= currentTask.repeatLimit)
+
+      var itemSuffix = ""
+      var updatedShopItem: ShopItemEntity? = null
+      if (currentTask.rewardItemId > 0L) {
+        val shopItem = dao.getShopItemsOnce().find { it.id == currentTask.rewardItemId }
+        if (shopItem != null) {
+          updatedShopItem = shopItem.copy(ownedQuantity = shopItem.ownedQuantity + 1)
+          itemSuffix = " 🎁 ${shopItem.name}"
+        }
+      }
+
+      val taskIdToDelete = if (isFinished) currentTask.id else null
+      val taskToUpdate = if (isFinished) {
+        null
+      } else {
+        val (nextStart, nextDue) = advanceCycle(currentTask, now)
+        val resetSubtasks = parseSubtasksJson(currentTask.subtasksJson).map { it.copy(isDone = false) }
+        currentTask.copy(
           completedCount = newCount,
           startTimestamp = nextStart,
           dueTimestamp = nextDue,
@@ -103,37 +128,139 @@ class GamefyRepository(private val dao: GamefyDao) {
           lastNotifiedKey = "",
           subtasksJson = toSubtasksJson(resetSubtasks),
         )
+      }
+
+      val taskEvent = ActivityEventEntity(
+        timestamp = now,
+        eventType = ActivityEventType.TASK_DONE,
+        taskId = currentTask.id,
+        taskName = currentTask.name,
+        categoryCode = currentTask.categoryCode,
+        onTime = onTime,
+        coinsDelta = currentTask.coinReward,
+        gemsDelta = currentTask.gemReward,
+        expDelta = currentTask.expReward,
+        durationMinutes = currentTask.durationMinutes,
+      )
+
+      val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+      val oldLevel = calculateLevel(profile.exp).level
+      val allAttrs = dao.getAttributesOnce()
+      val weightsByName = parseAttributeWeightsJson(currentTask.attributeWeightsJson)
+      val attrsToUpdate = mutableListOf<AttributeEntity>()
+      var gemsGained = currentTask.gemReward.coerceAtLeast(0)
+
+      if (currentTask.expReward > 0) {
+        if (weightsByName.isNotEmpty()) {
+          val attributeIds = parseIdCsv(currentTask.attributeIdsCsv)
+          val resolvedWeights = linkedMapOf<AttributeEntity, Int>()
+          val unmatchedWeightEntries = mutableListOf<Pair<String, Int>>()
+          for ((attrName, weight) in weightsByName) {
+            val byName = allAttrs.find { it.name.equals(attrName, ignoreCase = true) }
+            if (byName != null) {
+              resolvedWeights[byName] = (resolvedWeights[byName] ?: 0) + weight
+            } else {
+              unmatchedWeightEntries.add(attrName to weight)
+            }
+          }
+          if (unmatchedWeightEntries.isNotEmpty() && attributeIds.isNotEmpty()) {
+            val matchedIds = resolvedWeights.keys.map { it.id }.toSet()
+            val remainingAttrs = attributeIds
+              .filter { it !in matchedIds }
+              .mapNotNull { id -> allAttrs.find { it.id == id } }
+            unmatchedWeightEntries.zip(remainingAttrs).forEach { (entry, attr) ->
+              val weight = entry.second
+              resolvedWeights[attr] = (resolvedWeights[attr] ?: 0) + weight
+            }
+          }
+          val weightsByIdKey = resolvedWeights.entries.associate { (attr, w) -> attr.id.toString() to w }
+          val weightedExp = distributeWeightedExp(currentTask.expReward, weightsByIdKey)
+          for ((attrIdStr, share) in weightedExp) {
+            val attrId = attrIdStr.toLongOrNull() ?: continue
+            val attr = allAttrs.find { it.id == attrId } ?: continue
+            val prevAttrLevel = calculateLevel(attr.exp).level
+            val newAttrExp = attr.exp + share
+            val nextAttrLevel = calculateLevel(newAttrExp).level
+            if (nextAttrLevel > prevAttrLevel) {
+              gemsGained += (nextAttrLevel - prevAttrLevel)
+            }
+            attrsToUpdate.add(attr.copy(exp = newAttrExp))
+          }
+        } else {
+          val attributeIds = parseIdCsv(currentTask.attributeIdsCsv)
+          for (attrId in attributeIds) {
+            val attr = allAttrs.find { it.id == attrId } ?: continue
+            val prevAttrLevel = calculateLevel(attr.exp).level
+            val newAttrExp = attr.exp + currentTask.expReward
+            val nextAttrLevel = calculateLevel(newAttrExp).level
+            if (nextAttrLevel > prevAttrLevel) {
+              gemsGained += (nextAttrLevel - prevAttrLevel)
+            }
+            attrsToUpdate.add(attr.copy(exp = newAttrExp))
+          }
+        }
+      }
+
+      val today = localEpochDay(now)
+      val newStreak = when (profile.lastTaskEpochDay) {
+        today -> max(1, profile.currentStreak)
+        today - 1L -> profile.currentStreak + 1
+        else -> 1
+      }
+      val newBestStreak = max(profile.bestStreak, newStreak)
+
+      val updatedProfile = profile.copy(
+        exp = profile.exp + currentTask.expReward,
+        coins = profile.coins + currentTask.coinReward,
+        gems = profile.gems + gemsGained,
+        tasksDone = profile.tasksDone + 1,
+        coinsEarned = profile.coinsEarned + currentTask.coinReward,
+        currentStreak = newStreak,
+        bestStreak = newBestStreak,
+        lastTaskEpochDay = today,
+        completedNightAction = profile.completedNightAction || isNightActionNow(),
+        completedSubtaskChain = profile.completedSubtaskChain || fromSubtaskChain,
+      )
+
+      val (finalProfile, newlyUnlocked) = evaluateAndGrantAchievements(updatedProfile)
+      val achEvents = newlyUnlocked.mapNotNull { ach ->
+        if (ach.rewardCoins > 0 || ach.rewardGems > 0 || ach.rewardExp > 0) {
+          ActivityEventEntity(
+            timestamp = now,
+            eventType = ActivityEventType.ACH_REWARD,
+            taskName = ach.title,
+            coinsDelta = ach.rewardCoins,
+            gemsDelta = ach.rewardGems,
+            expDelta = ach.rewardExp,
+          )
+        } else null
+      }
+
+      dao.applyTaskCompletionAtomically(
+        taskIdToDelete = taskIdToDelete,
+        taskToUpdate = taskToUpdate,
+        shopItemToUpdate = updatedShopItem,
+        activityEvent = taskEvent,
+        attributesToUpdate = attrsToUpdate,
+        updatedProfile = finalProfile,
+        achievementEvents = achEvents,
+      )
+
+      val prefix = ((if (isFinished) "✔ Zakończono! " else "") + itemSuffix.trimStart()).trim()
+      val newLevel = calculateLevel(finalProfile.exp).level
+      val parts = mutableListOf<String>()
+      if (newLevel > oldLevel) parts.add("🎉 Poziom $newLevel!")
+      if (prefix.isNotEmpty()) parts.add(prefix)
+      parts.add("+${currentTask.expReward} EXP  +${currentTask.coinReward} 🪙")
+      if (gemsGained > 0) parts.add("+$gemsGained 💎")
+      RewardOutcome(
+        toastMessage = parts.joinToString("  "),
+        unlockedAchievements = newlyUnlocked,
       )
     }
 
-    dao.insertActivityEvent(
-      ActivityEventEntity(
-        timestamp = now,
-        eventType = ActivityEventType.TASK_DONE,
-        taskId = task.id,
-        taskName = task.name,
-        categoryCode = task.categoryCode,
-        onTime = onTime,
-        coinsDelta = task.coinReward,
-        gemsDelta = task.gemReward,
-        expDelta = task.expReward,
-        durationMinutes = task.durationMinutes,
-      )
-    )
-
-    val prefix = (if (isFinished) "✔ Zakończono! " else "") + itemSuffix.trimStart()
-    return awardRewards(
-      expGain = task.expReward,
-      coinGain = task.coinReward,
-      gemGain = task.gemReward,
-      attributeIds = parseIdCsv(task.attributeIdsCsv),
-      incrementTasksDone = true,
-      markSubtaskChain = fromSubtaskChain,
-      prefix = prefix.trim(),
-    )
-  }
-
   suspend fun toggleSubtask(task: TaskEntity, subtaskId: Long): RewardOutcome? {
+    if (!task.isActive) return null
     val subtasks = parseSubtasksJson(task.subtasksJson)
     if (subtasks.isEmpty()) return null
     val updated = subtasks.map { st ->
@@ -149,6 +276,7 @@ class GamefyRepository(private val dao: GamefyDao) {
   }
 
   suspend fun skipTask(task: TaskEntity): String {
+    if (!task.isActive) return ""
     val now = System.currentTimeMillis()
     val penaltyMode = PenaltyMode.fromCode(task.penaltyModeCode)
     var message = "Pominięto zadanie."
@@ -194,6 +322,59 @@ class GamefyRepository(private val dao: GamefyDao) {
       )
     }
     return message
+  }
+
+  suspend fun giveUpTask(task: TaskEntity): String {
+    if (!task.isActive) return ""
+    val now = System.currentTimeMillis()
+    val (minP, maxP) = resolveGiveUpPenaltyRange(
+      coinReward = task.coinReward,
+      difficultyCode = task.difficultyCode,
+      penaltyModeCode = task.penaltyModeCode,
+      penaltyMinCoins = task.penaltyMinCoins,
+      penaltyMaxCoins = task.penaltyMaxCoins,
+    )
+    val penalty = computePenaltyAmount(minP, maxP)
+    if (penalty > 0) {
+      val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+      dao.upsertProfile(profile.copy(coins = (profile.coins - penalty).coerceAtLeast(0)))
+    }
+
+    dao.insertActivityEvent(
+      ActivityEventEntity(
+        timestamp = now,
+        eventType = ActivityEventType.TASK_SKIP,
+        taskId = task.id,
+        taskName = task.name,
+        categoryCode = task.categoryCode,
+        onTime = false,
+        coinsDelta = -penalty,
+      )
+    )
+
+    val category = TaskCategory.fromCode(task.categoryCode)
+    return if (category == TaskCategory.SIDEQUEST) {
+      dao.deleteTaskById(task.id)
+      if (penalty > 0) "Poddano zadanie. Kara −$penalty 🪙" else "Poddano zadanie."
+    } else {
+      val nextDue = nextCycleTimestamp(now, category, task.repeatInterval)
+      val resetSubtasks = parseSubtasksJson(task.subtasksJson).map { it.copy(isDone = false) }
+      dao.updateTask(
+        task.copy(
+          startTimestamp = now,
+          dueTimestamp = nextDue,
+          penaltyDueSnapshot = null,
+          penaltyCountApplied = 0,
+          lastNotifiedKey = "",
+          subtasksJson = toSubtasksJson(resetSubtasks),
+        )
+      )
+      if (penalty > 0) {
+        "Poddano zadanie. Kara −$penalty 🪙 · Nowy czas do terminu"
+      } else {
+        "Poddano zadanie · Nowy czas do terminu"
+      }
+    }
   }
 
   private fun advanceCycle(task: TaskEntity, now: Long): Pair<Long, Long?> {
@@ -363,6 +544,7 @@ class GamefyRepository(private val dao: GamefyDao) {
     var totalPenalty = 0
 
     for (task in tasks) {
+      if (!task.isActive) continue
       val mode = PenaltyMode.fromCode(task.penaltyModeCode)
       val due = task.dueTimestamp ?: continue
       if (mode != PenaltyMode.ON_DUE_ONCE && mode != PenaltyMode.EVERY_MISSED_PERIOD) continue
@@ -612,11 +794,24 @@ class GamefyRepository(private val dao: GamefyDao) {
   suspend fun updateAttribute(attr: AttributeEntity) = dao.updateAttribute(attr)
   suspend fun deleteAttribute(id: Long) = dao.deleteAttributeById(id)
 
-  suspend fun addFolder(icon: String, name: String) {
-    dao.insertFolder(FolderEntity(icon = icon.ifBlank { "📁" }, name = name.trim()))
+  suspend fun addFolder(icon: String, name: String, colorHex: String = "") {
+    val cleanName = name.trim()
+    val resolvedHex = normalizeColorHex(colorHex).ifEmpty { defaultColorHexForFolder(cleanName) }
+    dao.insertFolder(
+      FolderEntity(
+        icon = icon.ifBlank { "📁" },
+        name = cleanName,
+        colorHex = resolvedHex,
+      )
+    )
   }
 
-  suspend fun updateFolder(folder: FolderEntity) = dao.updateFolder(folder)
+  suspend fun updateFolder(folder: FolderEntity) {
+    val resolvedHex = normalizeColorHex(folder.colorHex).ifEmpty {
+      defaultColorHexForFolder(folder.name, folder.id)
+    }
+    dao.updateFolder(folder.copy(colorHex = resolvedHex))
+  }
   suspend fun deleteFolder(id: Long) = dao.deleteFolderById(id)
 
   suspend fun getOrCreateTag(rawName: String): TagEntity {
@@ -645,6 +840,161 @@ class GamefyRepository(private val dao: GamefyDao) {
     dao.upsertProfile(profile.withNotificationSettings(settings))
   }
 
+  // --- Onboarding & Ready Tasks/Rewards Catalog ---
+
+  suspend fun completeOnboardingStartFromScratch() {
+    val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+    dao.upsertProfile(profile.copy(onboardingCompleted = true))
+  }
+
+  suspend fun completeOnboardingFromSurvey(
+    areas: List<OnboardingArea>?,
+    timePref: OnboardingTimePref?,
+    detailPref: OnboardingDetailPref?,
+    rewardPrefs: List<OnboardingRewardPref>?,
+    selectedTemplateIds: List<String>,
+    selectedRewardTemplateIds: List<String>,
+  ): Pair<Int, Int> {
+    val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+    dao.upsertProfile(
+      profile.copy(
+        onboardingCompleted = true,
+        onboardingInterestsCsv = areas?.takeIf { it.isNotEmpty() }?.joinToString(",") { it.id },
+        onboardingTimePref = timePref?.id,
+        onboardingDetailPref = detailPref?.id,
+        onboardingRewardPrefsCsv = rewardPrefs?.takeIf { it.isNotEmpty() }?.joinToString(",") { it.id },
+      )
+    )
+
+    var addedTasks = 0
+    for (tplId in selectedTemplateIds.distinct()) {
+      val tpl = READY_TASK_TEMPLATES.find { it.id == tplId } ?: continue
+      if (addTaskFromTemplate(tpl, asInactive = true)) {
+        addedTasks++
+      }
+    }
+
+    var addedRewards = 0
+    for (rewId in selectedRewardTemplateIds.distinct()) {
+      val tpl = REWARD_CATALOG_TEMPLATES.find { it.id == rewId } ?: continue
+      if (addRewardFromCatalog(tpl)) {
+        addedRewards++
+      }
+    }
+
+    return addedTasks to addedRewards
+  }
+
+  suspend fun setOnboardingDetailPref(detailPref: OnboardingDetailPref?) {
+    val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+    dao.upsertProfile(profile.copy(onboardingDetailPref = detailPref?.id))
+  }
+
+  suspend fun addTaskFromTemplate(
+    template: ReadyTaskTemplate,
+    asInactive: Boolean = true,
+  ): Boolean = templateAddMutex.withLock {
+    if (dao.getTaskBySourceTemplateId(template.id) != null) return@withLock false
+
+    val folders = dao.getFoldersOnce()
+    val defaultFolderColor = defaultColorHexForFolder(template.area.folderName)
+    val folder = folders.find { it.name.equals(template.area.folderName, ignoreCase = true) }
+      ?: FolderEntity(
+        id = dao.insertFolder(
+          FolderEntity(
+            icon = template.area.icon,
+            name = template.area.folderName,
+            colorHex = defaultFolderColor,
+          )
+        ),
+        icon = template.area.icon,
+        name = template.area.folderName,
+        colorHex = defaultFolderColor,
+      )
+
+    val tagIds = template.tags.map { rawTag -> getOrCreateTag(rawTag).id }
+    val allAttrs = dao.getAttributesOnce()
+    val linkedAttrIds = template.attributeWeights.keys.mapNotNull { attrName ->
+      allAttrs.find { it.name.equals(attrName, ignoreCase = true) }?.id
+    }
+    val subtasks = template.subtasks.mapIndexed { idx, title ->
+      SubtaskItem(id = idx + 1L, title = title, isDone = false)
+    }
+
+    val now = System.currentTimeMillis()
+    val due = if (asInactive || template.suggestedCategory == TaskCategory.SIDEQUEST) {
+      null
+    } else {
+      nextCycleTimestamp(now, template.suggestedCategory, template.suggestedInterval)
+    }
+
+    dao.insertTask(
+      TaskEntity(
+        name = template.name,
+        description = template.description,
+        folderId = folder.id,
+        tagIdsCsv = toIdCsv(tagIds),
+        categoryCode = template.suggestedCategory.code,
+        repeatInterval = template.suggestedInterval.coerceAtLeast(1),
+        expReward = template.exp,
+        coinReward = template.coins,
+        gemReward = 0,
+        difficultyCode = template.taskDifficulty.code,
+        attributeIdsCsv = toIdCsv(linkedAttrIds),
+        durationMinutes = template.estimatedMinutes,
+        reminderModeCode = ReminderMode.NONE.code,
+        penaltyModeCode = PenaltyMode.NONE.code,
+        startTimestamp = now,
+        dueTimestamp = due,
+        subtasksJson = toSubtasksJson(subtasks),
+        isActive = !asInactive,
+        sourceTemplateId = template.id,
+        attributeWeightsJson = toAttributeWeightsJson(template.attributeWeights),
+      )
+    )
+    true
+  }
+
+  suspend fun activateLibraryTask(taskId: Long): Boolean {
+    val task = dao.getTaskByIdOnce(taskId) ?: return false
+    if (task.isActive) return false
+    val now = System.currentTimeMillis()
+    val category = TaskCategory.fromCode(task.categoryCode)
+    val nextDue = if (category == TaskCategory.SIDEQUEST) {
+      task.dueTimestamp
+    } else {
+      task.dueTimestamp ?: nextCycleTimestamp(now, category, task.repeatInterval)
+    }
+    dao.updateTask(
+      task.copy(
+        isActive = true,
+        startTimestamp = now,
+        dueTimestamp = nextDue,
+      )
+    )
+    return true
+  }
+
+  suspend fun addRewardFromCatalog(
+    template: RewardCatalogTemplate,
+    customCoinPrice: Int = template.defaultCoinPrice,
+  ): Boolean = templateAddMutex.withLock {
+    if (dao.getShopItemBySourceTemplateId(template.id) != null) return@withLock false
+    dao.insertShopItem(
+      ShopItemEntity(
+        icon = template.icon,
+        name = template.name,
+        coinPrice = customCoinPrice.coerceAtLeast(0),
+        gemPrice = 0,
+        ownedQuantity = 0,
+        unlocked = false,
+        description = template.description,
+        sourceRewardTemplateId = template.id,
+      )
+    )
+    true
+  }
+
   suspend fun checkDueReminders(nowMillis: Long = System.currentTimeMillis()): List<Pair<Long, String>> {
     val profile = dao.getProfileOnce() ?: return emptyList()
     if (!profile.notificationsEnabled) return emptyList()
@@ -657,7 +1007,7 @@ class GamefyRepository(private val dao: GamefyDao) {
     val remainingQuota = if (maxPerDay > 0) maxPerDay - sentToday else Int.MAX_VALUE
 
     val dayBucket = todayEpoch
-    val tasks = dao.getTasksOnce()
+    val tasks = dao.getTasksOnce().filter { it.isActive }
     val candidateAlerts = mutableListOf<Triple<TaskEntity, String, String>>()
 
     if (!settings.useTaskSettings) {
@@ -846,6 +1196,11 @@ class GamefyRepository(private val dao: GamefyDao) {
           put("notifUseTaskSettings", profile.notifUseTaskSettings)
           put("notifSentCountToday", profile.notifSentCountToday)
           put("notifSentEpochDay", profile.notifSentEpochDay)
+          put("onboardingCompleted", profile.onboardingCompleted)
+          put("onboardingInterestsCsv", profile.onboardingInterestsCsv ?: JSONObject.NULL)
+          put("onboardingTimePref", profile.onboardingTimePref ?: JSONObject.NULL)
+          put("onboardingDetailPref", profile.onboardingDetailPref ?: JSONObject.NULL)
+          put("onboardingRewardPrefsCsv", profile.onboardingRewardPrefsCsv ?: JSONObject.NULL)
         },
       )
       put(
@@ -869,6 +1224,7 @@ class GamefyRepository(private val dao: GamefyDao) {
               put("id", f.id)
               put("icon", f.icon)
               put("name", f.name)
+              put("colorHex", f.resolvedColorHex())
             })
           }
         },
@@ -915,6 +1271,9 @@ class GamefyRepository(private val dao: GamefyDao) {
               put("gemReward", t.gemReward)
               put("preferredReminderHour", t.preferredReminderHour)
               put("preferredReminderMinute", t.preferredReminderMinute)
+              put("isActive", t.isActive)
+              put("sourceTemplateId", t.sourceTemplateId ?: JSONObject.NULL)
+              put("attributeWeightsJson", t.attributeWeightsJson)
             })
           }
         },
@@ -938,6 +1297,7 @@ class GamefyRepository(private val dao: GamefyDao) {
               put("limitPeriodCode", s.limitPeriodCode)
               put("limitMaxCount", s.limitMaxCount)
               put("purchaseHistoryCsv", s.purchaseHistoryCsv)
+              put("sourceRewardTemplateId", s.sourceRewardTemplateId ?: JSONObject.NULL)
             })
           }
         },
@@ -968,10 +1328,18 @@ class GamefyRepository(private val dao: GamefyDao) {
     }.toString(2)
   }
 
-  suspend fun importFromJson(rawJson: String): Boolean = withContext(Dispatchers.IO) {
+  suspend fun importFromJson(
+    rawJson: String,
+    markOnboardingCompleted: Boolean = false,
+  ): Boolean = withContext(Dispatchers.IO) {
     runCatching {
       val root = JSONObject(rawJson)
       val pObj = root.getJSONObject("profile")
+      val importedOnboardingDone = if (pObj.has("onboardingCompleted")) {
+        pObj.optBoolean("onboardingCompleted", true)
+      } else {
+        true
+      }
       val profile = PlayerProfileEntity(
         id = 1L,
         exp = pObj.optInt("exp", 0),
@@ -1003,6 +1371,11 @@ class GamefyRepository(private val dao: GamefyDao) {
         notifUseTaskSettings = pObj.optBoolean("notifUseTaskSettings", true),
         notifSentCountToday = pObj.optInt("notifSentCountToday", 0),
         notifSentEpochDay = pObj.optLong("notifSentEpochDay", -1L),
+        onboardingCompleted = markOnboardingCompleted || importedOnboardingDone,
+        onboardingInterestsCsv = if (pObj.isNull("onboardingInterestsCsv")) null else pObj.optString("onboardingInterestsCsv").ifBlank { null },
+        onboardingTimePref = if (pObj.isNull("onboardingTimePref")) null else pObj.optString("onboardingTimePref").ifBlank { null },
+        onboardingDetailPref = if (pObj.isNull("onboardingDetailPref")) null else pObj.optString("onboardingDetailPref").ifBlank { null },
+        onboardingRewardPrefsCsv = if (pObj.isNull("onboardingRewardPrefsCsv")) null else pObj.optString("onboardingRewardPrefsCsv").ifBlank { null },
       )
 
       val attrsArr = root.getJSONArray("attributes")
@@ -1019,10 +1392,15 @@ class GamefyRepository(private val dao: GamefyDao) {
       val foldersArr = root.getJSONArray("folders")
       val folders = (0 until foldersArr.length()).map { idx ->
         val o = foldersArr.getJSONObject(idx)
+        val id = o.getLong("id")
+        val name = o.getString("name")
+        val colorHex = normalizeColorHex(o.optString("colorHex", ""))
+          .ifEmpty { defaultColorHexForFolder(name, id) }
         FolderEntity(
-          id = o.getLong("id"),
+          id = id,
           icon = o.optString("icon", "📁"),
-          name = o.getString("name"),
+          name = name,
+          colorHex = colorHex,
         )
       }
 
@@ -1066,6 +1444,9 @@ class GamefyRepository(private val dao: GamefyDao) {
           gemReward = o.optInt("gemReward", 0),
           preferredReminderHour = o.optInt("preferredReminderHour", -1),
           preferredReminderMinute = o.optInt("preferredReminderMinute", 0),
+          isActive = o.optBoolean("isActive", true),
+          sourceTemplateId = if (o.isNull("sourceTemplateId")) null else o.optString("sourceTemplateId").ifBlank { null },
+          attributeWeightsJson = o.optString("attributeWeightsJson", ""),
         )
       }
 
@@ -1087,6 +1468,7 @@ class GamefyRepository(private val dao: GamefyDao) {
           limitPeriodCode = o.optString("limitPeriodCode", "0"),
           limitMaxCount = o.optInt("limitMaxCount", 1),
           purchaseHistoryCsv = o.optString("purchaseHistoryCsv", ""),
+          sourceRewardTemplateId = if (o.isNull("sourceRewardTemplateId")) null else o.optString("sourceRewardTemplateId").ifBlank { null },
         )
       }
 

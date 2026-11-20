@@ -17,7 +17,13 @@ import com.example.data.local.TaskEntity
 import com.example.data.model.AchievementDefinition
 import com.example.data.model.AppThemeId
 import com.example.data.model.NotificationSettings
+import com.example.data.model.OnboardingArea
+import com.example.data.model.OnboardingDetailPref
+import com.example.data.model.OnboardingRewardPref
+import com.example.data.model.OnboardingTimePref
+import com.example.data.model.ReadyTaskTemplate
 import com.example.data.model.ReminderMode
+import com.example.data.model.RewardCatalogTemplate
 import com.example.data.model.TaskCategory
 import com.example.data.repository.GamefyRepository
 import com.example.data.repository.RewardOutcome
@@ -486,6 +492,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  fun giveUpTask(task: TaskEntity) {
+    stopAndResetTaskTimerIfMatches(task.id)
+    viewModelScope.launch {
+      val msg = repository.giveUpTask(task)
+      if (msg.isNotBlank()) _toastEvents.tryEmit(msg)
+    }
+  }
+
   fun saveTask(task: TaskEntity) {
     viewModelScope.launch {
       emitOutcome(repository.saveTask(task))
@@ -571,9 +585,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     viewModelScope.launch { repository.deleteAttribute(id) }
   }
 
-  fun addFolder(icon: String, name: String) {
+  fun addFolder(icon: String, name: String, colorHex: String = "") {
     if (name.isBlank()) return
-    viewModelScope.launch { repository.addFolder(icon, name) }
+    viewModelScope.launch { repository.addFolder(icon, name, colorHex) }
   }
 
   fun updateFolder(folder: FolderEntity) {
@@ -619,6 +633,111 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       _toastEvents.tryEmit(
         if (ok) "Kopia zapasowa została wczytana!" else "Nieprawidłowy plik kopii zapasowej"
       )
+    }
+  }
+
+  // --- Onboarding & Built-in Ready Tasks / Rewards Catalog ---
+
+  fun completeOnboardingStartFromScratch() {
+    viewModelScope.launch {
+      repository.completeOnboardingStartFromScratch()
+    }
+  }
+
+  fun completeOnboardingFromSurvey(
+    areas: List<OnboardingArea>?,
+    timePref: OnboardingTimePref?,
+    detailPref: OnboardingDetailPref?,
+    rewardPrefs: List<OnboardingRewardPref>?,
+    selectedTemplateIds: List<String>,
+    selectedRewardTemplateIds: List<String>,
+    onDone: (Int) -> Unit = {},
+  ) {
+    viewModelScope.launch {
+      val (addedTasks, addedRewards) = repository.completeOnboardingFromSurvey(
+        areas = areas,
+        timePref = timePref,
+        detailPref = detailPref,
+        rewardPrefs = rewardPrefs,
+        selectedTemplateIds = selectedTemplateIds,
+        selectedRewardTemplateIds = selectedRewardTemplateIds,
+      )
+      val tasksLabel = formatPolishTasksAccusative(addedTasks)
+      val rewardsLabel = formatPolishRewardsAccusative(addedRewards)
+      val msg = when {
+        addedTasks > 0 && addedRewards > 0 ->
+          "Dodano $tasksLabel do biblioteki (nieaktywne) i $rewardsLabel do sklepu."
+        addedTasks > 0 ->
+          "Dodano $tasksLabel do Twojej biblioteki jako nieaktywne."
+        addedRewards > 0 ->
+          "Dodano $rewardsLabel do sklepu."
+        else -> "Gotowe! Możesz teraz samodzielnie dodawać zadania."
+      }
+      _toastEvents.tryEmit(msg)
+      onDone(addedTasks)
+    }
+  }
+
+  private fun formatPolishTasksAccusative(count: Int): String = when {
+    count == 1 -> "1 zadanie"
+    count % 10 in 2..4 && count % 100 !in 12..14 -> "$count zadania"
+    else -> "$count zadań"
+  }
+
+  private fun formatPolishRewardsAccusative(count: Int): String = when {
+    count == 1 -> "1 nagrodę"
+    count % 10 in 2..4 && count % 100 !in 12..14 -> "$count nagrody"
+    else -> "$count nagród"
+  }
+
+  suspend fun importBackupDuringOnboarding(json: String): Boolean {
+    val ok = repository.importFromJson(json, markOnboardingCompleted = true)
+    _toastEvents.tryEmit(
+      if (ok) "Dane z kopii zapasowej zostały przywrócone!" else "Nie udało się wczytać pliku kopii zapasowej."
+    )
+    return ok
+  }
+
+  fun addTaskFromTemplate(template: ReadyTaskTemplate, asInactive: Boolean = true) {
+    viewModelScope.launch {
+      val added = repository.addTaskFromTemplate(template, asInactive = asInactive)
+      _toastEvents.tryEmit(
+        if (added) {
+          "Dodano „${template.name}” do biblioteki zadań (nieaktywne)."
+        } else {
+          "To zadanie znajduje się już w Twoich zadaniach."
+        }
+      )
+    }
+  }
+
+  fun activateLibraryTask(taskId: Long) {
+    viewModelScope.launch {
+      if (repository.activateLibraryTask(taskId)) {
+        _toastEvents.tryEmit("Zadanie zostało aktywowane!")
+      }
+    }
+  }
+
+  fun addRewardFromCatalog(
+    template: RewardCatalogTemplate,
+    customCoinPrice: Int = template.defaultCoinPrice,
+  ) {
+    viewModelScope.launch {
+      val added = repository.addRewardFromCatalog(template, customCoinPrice)
+      _toastEvents.tryEmit(
+        if (added) {
+          "Dodano nagrodę „${template.name}” do sklepu."
+        } else {
+          "Ta nagroda jest już w Twoim sklepie."
+        }
+      )
+    }
+  }
+
+  fun setOnboardingDetailPref(detailPref: OnboardingDetailPref?) {
+    viewModelScope.launch {
+      repository.setOnboardingDetailPref(detailPref)
     }
   }
 }

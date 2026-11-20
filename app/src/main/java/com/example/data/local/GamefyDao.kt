@@ -71,6 +71,12 @@ interface GamefyDao {
   @Query("SELECT * FROM tasks ORDER BY id ASC")
   suspend fun getTasksOnce(): List<TaskEntity>
 
+  @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
+  suspend fun getTaskByIdOnce(id: Long): TaskEntity?
+
+  @Query("SELECT * FROM tasks WHERE sourceTemplateId = :templateId LIMIT 1")
+  suspend fun getTaskBySourceTemplateId(templateId: String): TaskEntity?
+
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertTask(task: TaskEntity): Long
 
@@ -85,6 +91,9 @@ interface GamefyDao {
 
   @Query("SELECT * FROM shop_items ORDER BY id ASC")
   suspend fun getShopItemsOnce(): List<ShopItemEntity>
+
+  @Query("SELECT * FROM shop_items WHERE sourceRewardTemplateId = :templateId LIMIT 1")
+  suspend fun getShopItemBySourceTemplateId(templateId: String): ShopItemEntity?
 
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertShopItem(item: ShopItemEntity): Long
@@ -145,5 +154,24 @@ interface GamefyDao {
     tasks.forEach { insertTask(it) }
     shopItems.forEach { insertShopItem(it) }
     activityEvents.forEach { insertActivityEvent(it) }
+  }
+
+  @Transaction
+  suspend fun applyTaskCompletionAtomically(
+    taskIdToDelete: Long?,
+    taskToUpdate: TaskEntity?,
+    shopItemToUpdate: ShopItemEntity?,
+    activityEvent: ActivityEventEntity,
+    attributesToUpdate: List<AttributeEntity>,
+    updatedProfile: PlayerProfileEntity,
+    achievementEvents: List<ActivityEventEntity>,
+  ) {
+    if (shopItemToUpdate != null) updateShopItem(shopItemToUpdate)
+    if (taskIdToDelete != null) deleteTaskById(taskIdToDelete)
+    if (taskToUpdate != null) updateTask(taskToUpdate)
+    insertActivityEvent(activityEvent)
+    attributesToUpdate.forEach { updateAttribute(it) }
+    upsertProfile(updatedProfile)
+    achievementEvents.forEach { insertActivityEvent(it) }
   }
 }

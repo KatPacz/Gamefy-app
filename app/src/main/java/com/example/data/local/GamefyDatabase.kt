@@ -20,7 +20,7 @@ import kotlinx.coroutines.sync.withLock
     ShopItemEntity::class,
     ActivityEventEntity::class,
   ],
-  version = 7,
+  version = 9,
   exportSchema = false,
 )
 abstract class GamefyDatabase : RoomDatabase() {
@@ -105,6 +105,34 @@ abstract class GamefyDatabase : RoomDatabase() {
       }
     }
 
+    val MIGRATION_7_8 = object : Migration(7, 8) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN onboardingCompleted INTEGER NOT NULL DEFAULT 1")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN onboardingInterestsCsv TEXT")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN onboardingTimePref TEXT")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN onboardingDetailPref TEXT")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN onboardingRewardPrefsCsv TEXT")
+        db.execSQL("ALTER TABLE tasks ADD COLUMN isActive INTEGER NOT NULL DEFAULT 1")
+        db.execSQL("ALTER TABLE tasks ADD COLUMN sourceTemplateId TEXT")
+        db.execSQL("ALTER TABLE tasks ADD COLUMN attributeWeightsJson TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE shop_items ADD COLUMN sourceRewardTemplateId TEXT")
+      }
+    }
+
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE folders ADD COLUMN colorHex TEXT NOT NULL DEFAULT ''")
+        db.execSQL("UPDATE folders SET colorHex = '#F59E0B' WHERE LOWER(TRIM(name)) = 'dom' AND colorHex = ''")
+        db.execSQL("UPDATE folders SET colorHex = '#3B82F6' WHERE LOWER(TRIM(name)) = 'praca' AND colorHex = ''")
+        db.execSQL("UPDATE folders SET colorHex = '#8B5CF6' WHERE LOWER(TRIM(name)) = 'nauka' AND colorHex = ''")
+        db.execSQL("UPDATE folders SET colorHex = '#10B981' WHERE LOWER(TRIM(name)) = 'zdrowie' AND colorHex = ''")
+        db.execSQL("UPDATE folders SET colorHex = '#14B8A6' WHERE LOWER(TRIM(name)) = 'samopoczucie' AND colorHex = ''")
+        db.execSQL("UPDATE folders SET colorHex = '#EC4899' WHERE LOWER(TRIM(name)) = 'hobby' AND colorHex = ''")
+        db.execSQL("UPDATE folders SET colorHex = '#F97316' WHERE LOWER(TRIM(name)) IN ('zwierzęta', 'zwierzeta') AND colorHex = ''")
+        db.execSQL("UPDATE folders SET colorHex = '#6366F1' WHERE LOWER(TRIM(name)) = 'side questy' AND colorHex = ''")
+      }
+    }
+
     fun getInstance(context: Context): GamefyDatabase {
       return INSTANCE ?: synchronized(this) {
         INSTANCE ?: Room.databaseBuilder(
@@ -119,6 +147,8 @@ abstract class GamefyDatabase : RoomDatabase() {
             MIGRATION_4_5,
             MIGRATION_5_6,
             MIGRATION_6_7,
+            MIGRATION_7_8,
+            MIGRATION_8_9,
           )
           .build()
           .also { INSTANCE = it }
@@ -130,142 +160,23 @@ abstract class GamefyDatabase : RoomDatabase() {
         val dao = db.gamefyDao()
         if (dao.getProfileOnce() != null) return
 
-        val now = System.currentTimeMillis()
-        dao.upsertProfile(PlayerProfileEntity(id = 1L))
+        dao.upsertProfile(PlayerProfileEntity(id = 1L, onboardingCompleted = false))
 
-        val strId = dao.insertAttribute(AttributeEntity(id = 1L, icon = "💪", name = "Siła"))
+        dao.insertAttribute(AttributeEntity(id = 1L, icon = "💪", name = "Siła"))
         dao.insertAttribute(AttributeEntity(id = 2L, icon = "📚", name = "Wiedza"))
-        val healthId = dao.insertAttribute(AttributeEntity(id = 3L, icon = "🌿", name = "Zdrowie"))
+        dao.insertAttribute(AttributeEntity(id = 3L, icon = "🌿", name = "Zdrowie"))
         dao.insertAttribute(AttributeEntity(id = 4L, icon = "🎨", name = "Kreatywność"))
-        val discId = dao.insertAttribute(AttributeEntity(id = 5L, icon = "🎯", name = "Dyscyplina"))
+        dao.insertAttribute(AttributeEntity(id = 5L, icon = "🎯", name = "Dyscyplina"))
 
-        val homeFolder = dao.insertFolder(FolderEntity(id = 1L, icon = "🏠", name = "Dom"))
-        dao.insertFolder(FolderEntity(id = 2L, icon = "💼", name = "Praca"))
-        dao.insertFolder(FolderEntity(id = 3L, icon = "📚", name = "Nauka"))
-        val healthFolder = dao.insertFolder(FolderEntity(id = 4L, icon = "💪", name = "Zdrowie"))
+        dao.insertFolder(FolderEntity(id = 1L, icon = "🏠", name = "Dom", colorHex = defaultColorHexForFolder("Dom", 1L)))
+        dao.insertFolder(FolderEntity(id = 2L, icon = "💼", name = "Praca", colorHex = defaultColorHexForFolder("Praca", 2L)))
+        dao.insertFolder(FolderEntity(id = 3L, icon = "📚", name = "Nauka", colorHex = defaultColorHexForFolder("Nauka", 3L)))
+        dao.insertFolder(FolderEntity(id = 4L, icon = "💪", name = "Zdrowie", colorHex = defaultColorHexForFolder("Zdrowie", 4L)))
 
-        val urgentTag = dao.insertTag(TagEntity(id = 1L, name = "pilne"))
-        val importantTag = dao.insertTag(TagEntity(id = 2L, name = "ważne"))
+        dao.insertTag(TagEntity(id = 1L, name = "pilne"))
+        dao.insertTag(TagEntity(id = 2L, name = "ważne"))
         dao.insertTag(TagEntity(id = 3L, name = "łatwe"))
         dao.insertTag(TagEntity(id = 4L, name = "poranek"))
-
-        dao.insertShopItem(
-          ShopItemEntity(
-            id = 1L,
-            icon = "☕",
-            name = "Kawa",
-            coinPrice = 30,
-            gemPrice = 0,
-            limitPeriodCode = "d",
-            limitMaxCount = 2,
-          )
-        )
-        dao.insertShopItem(
-          ShopItemEntity(
-            id = 2L,
-            icon = "🎬",
-            name = "Godzina serialu",
-            coinPrice = 80,
-            gemPrice = 0,
-          )
-        )
-        dao.insertShopItem(
-          ShopItemEntity(
-            id = 3L,
-            icon = "🍣",
-            name = "Sushi",
-            coinPrice = 250,
-            gemPrice = 0,
-          )
-        )
-        dao.insertShopItem(
-          ShopItemEntity(
-            id = 4L,
-            icon = "☕",
-            name = "Ekspres do kawy",
-            coinPrice = 500,
-            gemPrice = 3,
-            requiredAttrId = discId,
-            requiredAttrLevel = 2,
-            description = "Wymarzony model: https://example.com/ekspres",
-          )
-        )
-        dao.insertShopItem(
-          ShopItemEntity(
-            id = 5L,
-            icon = "🏖️",
-            name = "Dzień wolny",
-            coinPrice = 600,
-            gemPrice = 5,
-          )
-        )
-
-        dao.insertTask(
-          TaskEntity(
-            id = 1L,
-            name = "Sprzątanie łazienki",
-            description = "Dokładne porządki raz w tygodniu.",
-            folderId = homeFolder,
-            tagIdsCsv = urgentTag.toString(),
-            categoryCode = "w",
-            repeatInterval = 1,
-            expReward = 30,
-            coinReward = 20,
-            gemReward = 0,
-            difficultyCode = "e",
-            attributeIdsCsv = discId.toString(),
-            durationMinutes = 15,
-            reminderModeCode = "d1",
-            penaltyModeCode = "o",
-            penaltyMinCoins = 5,
-            penaltyMaxCoins = 10,
-            startTimestamp = now - 2 * MILLIS_PER_DAY,
-            dueTimestamp = now + 5 * MILLIS_PER_DAY,
-            subtasksJson = toSubtasksJson(
-              listOf(
-                SubtaskItem(1L, "Umyć lustro", false),
-                SubtaskItem(2L, "Wyczyścić umywalkę", false),
-                SubtaskItem(3L, "Umyć podłogę", false),
-              )
-            ),
-          )
-        )
-        dao.insertTask(
-          TaskEntity(
-            id = 2L,
-            name = "Trening siłowy",
-            folderId = healthFolder,
-            categoryCode = "d",
-            repeatInterval = 3,
-            expReward = 55,
-            coinReward = 40,
-            gemReward = 1,
-            difficultyCode = "h",
-            attributeIdsCsv = "$strId,$healthId",
-            reminderModeCode = "od",
-            startTimestamp = now - 3 * MILLIS_PER_DAY,
-            dueTimestamp = now - 4_000_000L,
-          )
-        )
-        dao.insertTask(
-          TaskEntity(
-            id = 3L,
-            name = "Umówić wizytę u dentysty",
-            description = "Rejestracja online: https://example.com",
-            link = "https://example.com",
-            folderId = healthFolder,
-            tagIdsCsv = importantTag.toString(),
-            categoryCode = "o",
-            repeatInterval = 1,
-            expReward = 15,
-            coinReward = 10,
-            gemReward = 0,
-            difficultyCode = "ve",
-            attributeIdsCsv = healthId.toString(),
-            startTimestamp = now,
-            dueTimestamp = null,
-          )
-        )
       }
     }
   }

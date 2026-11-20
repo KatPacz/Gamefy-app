@@ -18,6 +18,12 @@ import com.example.data.model.NotificationSettings
 import com.example.data.model.NotificationSummaryStyle
 import com.example.data.model.NotificationTimeSlot
 import com.example.data.model.NotificationTriggerMode
+import com.example.data.model.OnboardingArea
+import com.example.data.model.OnboardingDetailPref
+import com.example.data.model.OnboardingRewardPref
+import com.example.data.model.OnboardingTimePref
+import com.example.data.model.READY_TASK_TEMPLATES
+import com.example.data.model.REWARD_CATALOG_TEMPLATES
 import com.example.data.model.ReminderMode
 import com.example.data.model.localEpochDay
 import com.example.data.model.toNotificationSettings
@@ -158,6 +164,9 @@ class GamefyRepositoryTest {
   @Test
   fun `json export and import preserves full local state`() = runBlocking {
     GamefyDatabase.ensureSeeded(db)
+    db.gamefyDao().insertTask(
+      TaskEntity(name = "Sprzątanie łazienki", categoryCode = "w", expReward = 30, coinReward = 20)
+    )
     val json = repo.exportToJson()
     assertTrue(json.contains("Sprzątanie łazienki"))
 
@@ -583,4 +592,406 @@ class GamefyRepositoryTest {
     assertTrue(repo.importFromJson(json))
     assertEquals(events.size, dao.getActivityEventsOnce().size)
   }
+
+  @Test
+  fun `fresh install starts empty and start from scratch marks onboarding complete without adding tasks or rewards`() = runTest {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+
+    assertFalse(dao.getProfileOnce()!!.onboardingCompleted)
+    assertTrue(dao.getTasksOnce().isEmpty())
+    assertTrue(dao.getShopItemsOnce().isEmpty())
+    assertEquals(5, dao.getAttributesOnce().size)
+
+    repo.completeOnboardingStartFromScratch()
+
+    val profile = dao.getProfileOnce()!!
+    assertTrue(profile.onboardingCompleted)
+    assertEquals(null, profile.onboardingInterestsCsv)
+    assertEquals(null, profile.onboardingTimePref)
+    assertEquals(null, profile.onboardingDetailPref)
+    assertEquals(null, profile.onboardingRewardPrefsCsv)
+    assertTrue(dao.getTasksOnce().isEmpty())
+    assertTrue(dao.getShopItemsOnce().isEmpty())
+  }
+
+  @Test
+  fun `backup restore marks onboarding complete only on valid json and keeps welcome on failure`() = runBlocking {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+    assertFalse(dao.getProfileOnce()!!.onboardingCompleted)
+
+    // Invalid JSON fails without marking onboarding completed
+    assertFalse(repo.importFromJson("{ invalid json", markOnboardingCompleted = true))
+    assertFalse(dao.getProfileOnce()!!.onboardingCompleted)
+
+    // Build a valid backup JSON with a task
+    dao.insertTask(TaskEntity(name = "Przywrócone zadanie", categoryCode = "d", coinReward = 15, expReward = 15))
+    val backupJson = repo.exportToJson()
+    dao.clearTasks()
+    dao.upsertProfile(dao.getProfileOnce()!!.copy(onboardingCompleted = false))
+
+    assertTrue(repo.importFromJson(backupJson, markOnboardingCompleted = true))
+    assertTrue(dao.getProfileOnce()!!.onboardingCompleted)
+    assertNotNull(dao.getTasksOnce().find { it.name == "Przywrócone zadanie" })
+  }
+
+  @Test
+  fun `onboarding survey saves only answered preferences adds inactive tasks without rewards and prevents duplicates`() = runTest {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+
+    val (addedTasks, addedRewards) = repo.completeOnboardingFromSurvey(
+      areas = listOf(OnboardingArea.NAUKA),
+      timePref = null, // skipped
+      detailPref = OnboardingDetailPref.SIMPLE,
+      rewardPrefs = listOf(OnboardingRewardPref.BOOKS),
+      selectedTemplateIds = listOf("nauka_05", "nauka_05"), // duplicate id ignored
+      selectedRewardTemplateIds = listOf("rew_books_01"),
+    )
+
+    assertEquals(1, addedTasks)
+    assertEquals(1, addedRewards)
+
+    val profile = dao.getProfileOnce()!!
+    assertTrue(profile.onboardingCompleted)
+    assertEquals("nauka", profile.onboardingInterestsCsv)
+    assertEquals(null, profile.onboardingTimePref)
+    assertEquals("simple", profile.onboardingDetailPref)
+    // Adding from template must award 0 EXP / 0 coins
+    assertEquals(0, profile.exp)
+    assertEquals(0, profile.coins)
+    assertEquals(0, profile.tasksDone)
+
+    val task = dao.getTasksOnce().single()
+    assertFalse(task.isActive)
+    assertEquals("nauka_05", task.sourceTemplateId)
+    assertEquals(null, task.dueTimestamp)
+    assertEquals(ReminderMode.NONE.code, task.reminderModeCode)
+
+    // Completing an inactive task must be ignored
+    repo.completeTask(task)
+    assertEquals(0, dao.getProfileOnce()!!.exp)
+
+    // Duplicate add from Ready Tasks DB is blocked
+    val tpl = READY_TASK_TEMPLATES.first { it.id == "nauka_05" }
+    assertFalse(repo.addTaskFromTemplate(tpl))
+
+    // Editing user copy does not mutate built-in template
+    repo.saveTask(task.copy(name = "Moja własna sesja nauki"))
+    assertEquals("Sesja głębokiej nauki — 25 minut", READY_TASK_TEMPLATES.first { it.id == "nauka_05" }.name)
+
+    // Shop reward added without auto-purchasing
+    val shopItem = dao.getShopItemsOnce().single()
+    assertEquals(0, shopItem.ownedQuantity)
+    assertFalse(shopItem.unlocked)
+    assertFalse(repo.addRewardFromCatalog(REWARD_CATALOG_TEMPLATES.first { it.id == "rew_books_01" }))
+  }
+
+  @Test
+  fun `activating template task splits weighted EXP accurately across attributes and subtasks award zero partial rewards`() = runTest {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+
+    val tpl = READY_TASK_TEMPLATES.first { it.id == "nauka_05" } // 10 EXP, 10 coins, Wiedza 60%, Dyscyplina 40%, 4 subtasks
+    assertTrue(repo.addTaskFromTemplate(tpl, asInactive = true))
+    val taskId = dao.getTasksOnce().single().id
+
+    assertTrue(repo.activateLibraryTask(taskId))
+    val activeTask = dao.getTaskByIdOnce(taskId)!!
+    assertTrue(activeTask.isActive)
+
+    // Check first 3 of 4 subtasks -> 0 EXP, 0 coins awarded
+    val subtasks = parseSubtasksJson(activeTask.subtasksJson)
+    assertEquals(4, subtasks.size)
+    for (i in 0 until 3) {
+      val current = dao.getTaskByIdOnce(taskId)!!
+      val res = repo.toggleSubtask(current, subtasks[i].id)
+      assertEquals(null, res)
+      assertEquals(0, dao.getProfileOnce()!!.exp)
+      assertEquals(0, dao.getProfileOnce()!!.coins)
+    }
+
+    // Check 4th (final) subtask -> atomically completes main task & splits 10 EXP into Wiedza +6, Dyscyplina +4
+    val finalOutcome = repo.toggleSubtask(dao.getTaskByIdOnce(taskId)!!, subtasks[3].id)
+    assertNotNull(finalOutcome)
+
+    val attrs = dao.getAttributesOnce()
+    val wiedza = attrs.first { it.name == "Wiedza" }
+    val dyscyplina = attrs.first { it.name == "Dyscyplina" }
+    val sila = attrs.first { it.name == "Siła" }
+    assertEquals(6, wiedza.exp)
+    assertEquals(4, dyscyplina.exp)
+    assertEquals(0, sila.exp)
+  }
+
+  @Test
+  fun `legacy v1 backup without onboarding or v5-v8 fields restores cleanly and marks onboarding complete`() = runBlocking {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+    assertFalse(dao.getProfileOnce()!!.onboardingCompleted)
+
+    val legacyV1Json = """
+      {
+        "version": 1,
+        "profile": {
+          "exp": 320,
+          "coins": 145,
+          "gems": 3,
+          "tasksDone": 12,
+          "pomosDone": 4,
+          "coinsEarned": 240,
+          "itemsBought": 2,
+          "notificationsEnabled": true,
+          "themeCode": "forest",
+          "unlockedAchievementsCsv": "first_task"
+        },
+        "attributes": [
+          { "id": 1, "icon": "💪", "name": "Siła", "exp": 120 }
+        ],
+        "folders": [
+          { "id": 1, "icon": "🏠", "name": "Dom" }
+        ],
+        "tags": [
+          { "id": 1, "name": "pilne" }
+        ],
+        "tasks": [
+          {
+            "id": 10,
+            "name": "Stare zadanie z v1",
+            "description": "Opis",
+            "link": "",
+            "folderId": 1,
+            "tagIdsCsv": "1",
+            "categoryCode": "d",
+            "repeatInterval": 1,
+            "repeatLimit": 0,
+            "completedCount": 3,
+            "expReward": 25,
+            "coinReward": 15,
+            "attributeIdsCsv": "1",
+            "rewardItemId": 0,
+            "durationMinutes": 15,
+            "reminderModeCode": "d1",
+            "penaltyModeCode": "0",
+            "penaltyMinCoins": 5,
+            "penaltyMaxCoins": 10,
+            "startTimestamp": 1700000000000,
+            "dueTimestamp": null
+          }
+        ],
+        "shopItems": [
+          {
+            "id": 5,
+            "icon": "☕",
+            "name": "Stara kawa",
+            "coinPrice": 40,
+            "gemPrice": 0,
+            "requiredAttrId": 0,
+            "requiredAttrLevel": 1,
+            "ownedQuantity": 1,
+            "unlocked": true,
+            "imageData": "",
+            "description": "",
+            "limitPeriodCode": "0",
+            "limitMaxCount": 1,
+            "purchaseHistoryCsv": ""
+          }
+        ]
+      }
+    """.trimIndent()
+
+    val ok = repo.importFromJson(legacyV1Json, markOnboardingCompleted = false)
+    assertTrue(ok)
+
+    val profile = dao.getProfileOnce()!!
+    assertTrue(profile.onboardingCompleted)
+    assertEquals(320, profile.exp)
+    assertEquals(145, profile.coins)
+    assertEquals(3, profile.gems)
+    assertEquals("forest", profile.themeCode)
+    assertTrue(profile.notifUseTaskSettings) // default true preserved
+
+    val task = dao.getTasksOnce().single()
+    assertEquals("Stare zadanie z v1", task.name)
+    assertTrue(task.isActive) // legacy tasks default to active
+    assertEquals(null, task.sourceTemplateId)
+    assertEquals("", task.attributeWeightsJson)
+
+    val item = dao.getShopItemsOnce().single()
+    assertEquals("Stara kawa", item.name)
+    assertEquals(null, item.sourceRewardTemplateId)
+  }
+
+  @Test
+  fun `renamed attribute still receives weighted EXP share and inactive task cannot be skipped`() = runTest {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+
+    val tpl = READY_TASK_TEMPLATES.first { it.id == "nauka_05" } // 10 EXP: Wiedza 60%, Dyscyplina 40%
+    assertTrue(repo.addTaskFromTemplate(tpl, asInactive = true))
+    val inactiveTask = dao.getTasksOnce().single()
+
+    // Inactive task skip must be a no-op
+    val skipResult = repo.skipTask(inactiveTask)
+    assertEquals("", skipResult)
+    assertTrue(dao.getActivityEventsOnce().isEmpty())
+
+    // Rename "Wiedza" -> "Rozwój" before completing template task
+    val wiedza = dao.getAttributesOnce().first { it.name == "Wiedza" }
+    repo.updateAttribute(wiedza.copy(name = "Rozwój"))
+
+    assertTrue(repo.activateLibraryTask(inactiveTask.id))
+    repo.completeTask(dao.getTaskByIdOnce(inactiveTask.id)!!)
+
+    val attrsAfter = dao.getAttributesOnce()
+    assertEquals(6, attrsAfter.first { it.id == wiedza.id }.exp)
+    assertEquals(4, attrsAfter.first { it.name == "Dyscyplina" }.exp)
+  }
+
+  @Test
+  fun `skipping all 4 survey questions saves only nulls and classic custom task EXP and coins remain intact`() = runTest {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+
+    val (addedTasks, addedRewards) = repo.completeOnboardingFromSurvey(
+      areas = null,
+      timePref = null,
+      detailPref = null,
+      rewardPrefs = null,
+      selectedTemplateIds = emptyList(),
+      selectedRewardTemplateIds = emptyList(),
+    )
+    assertEquals(0, addedTasks)
+    assertEquals(0, addedRewards)
+
+    val p = dao.getProfileOnce()!!
+    assertTrue(p.onboardingCompleted)
+    assertEquals(null, p.onboardingInterestsCsv)
+    assertEquals(null, p.onboardingTimePref)
+    assertEquals(null, p.onboardingDetailPref)
+    assertEquals(null, p.onboardingRewardPrefsCsv)
+    assertTrue(dao.getTasksOnce().isEmpty())
+    assertTrue(dao.getShopItemsOnce().isEmpty())
+
+    // Classic custom task with 2 linked attributes (no weightsJson) grants full expReward to each attribute
+    val attr1 = dao.getAttributesOnce()[0]
+    val attr2 = dao.getAttributesOnce()[1]
+    val customId = dao.insertTask(
+      TaskEntity(
+        name = "Własne klasyczne",
+        categoryCode = "o",
+        expReward = 35,
+        coinReward = 25,
+        gemReward = 1,
+        attributeIdsCsv = "${attr1.id},${attr2.id}",
+      )
+    )
+    repo.completeTask(dao.getTaskByIdOnce(customId)!!)
+
+    val profileAfter = dao.getProfileOnce()!!
+    // 35 task EXP + 30 first_task achievement = 65 EXP; 25 task coins + 15 first_task = 40 coins; 1 gem
+    assertEquals(65, profileAfter.exp)
+    assertEquals(40, profileAfter.coins)
+    assertEquals(1, profileAfter.gems)
+    val attrsAfter = dao.getAttributesOnce()
+    assertEquals(35, attrsAfter.first { it.id == attr1.id }.exp)
+    assertEquals(35, attrsAfter.first { it.id == attr2.id }.exp)
+  }
+
+  @Test
+  fun `giving up one-time task applies coin penalty and removes task from to-do list`() = runTest {
+    val dao = db.gamefyDao()
+    dao.upsertProfile(PlayerProfileEntity(id = 1L, coins = 100))
+    val taskId = dao.insertTask(
+      TaskEntity(
+        name = "Jednorazowe trudne",
+        categoryCode = "o",
+        coinReward = 20,
+        penaltyModeCode = com.example.data.model.PenaltyMode.ON_SKIP_ONLY.code,
+        penaltyMinCoins = 12,
+        penaltyMaxCoins = 12,
+      )
+    )
+
+    val msg = repo.giveUpTask(dao.getTaskByIdOnce(taskId)!!)
+    assertTrue(msg.contains("−12"))
+    assertEquals(88, dao.getProfileOnce()!!.coins)
+    assertEquals(null, dao.getTaskByIdOnce(taskId))
+    assertTrue(dao.getActivityEventsOnce().any { it.eventType == ActivityEventType.TASK_SKIP && it.coinsDelta == -12 })
+  }
+
+  @Test
+  fun `giving up overdue recurring task applies penalty removes overdue state and restarts deadline countdown`() = runTest {
+    val dao = db.gamefyDao()
+    dao.upsertProfile(PlayerProfileEntity(id = 1L, coins = 80))
+    val now = System.currentTimeMillis()
+    val taskId = dao.insertTask(
+      TaskEntity(
+        name = "Codzienne zaległe",
+        categoryCode = "d",
+        repeatInterval = 1,
+        coinReward = 15,
+        difficultyCode = "m",
+        penaltyModeCode = "0", // even without custom penalty, giving up applies auto surrender penalty
+        startTimestamp = now - 5 * MILLIS_PER_DAY,
+        dueTimestamp = now - 2 * MILLIS_PER_DAY,
+        penaltyDueSnapshot = now - 2 * MILLIS_PER_DAY,
+        penaltyCountApplied = 2,
+        subtasksJson = toSubtasksJson(listOf(SubtaskItem(1L, "Krok 1", true))),
+      )
+    )
+
+    val msg = repo.giveUpTask(dao.getTaskByIdOnce(taskId)!!)
+    assertTrue(msg.contains("Kara"))
+    val coinsAfter = dao.getProfileOnce()!!.coins
+    assertTrue("Coins should decrease after giving up", coinsAfter < 80)
+
+    val updated = dao.getTaskByIdOnce(taskId)!!
+    assertTrue(updated.isActive)
+    assertTrue("Task should stay active immediately (not hidden)", updated.startTimestamp >= now - 1000L && updated.startTimestamp <= System.currentTimeMillis() + 1000L)
+    assertTrue("Task should no longer be overdue and count down to new deadline", (updated.dueTimestamp ?: 0L) > now + 20 * 3600_000L)
+    assertEquals(null, updated.penaltyDueSnapshot)
+    assertEquals(0, updated.penaltyCountApplied)
+    assertTrue(parseSubtasksJson(updated.subtasksJson).none { it.isDone })
+  }
+
+  @Test
+  fun `categories have default colors allow custom color editing and survive backup import export`() = runBlocking {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+
+    val seeded = dao.getFoldersOnce()
+    assertEquals(4, seeded.size)
+    assertTrue("All seeded categories should have distinct hex colors", seeded.map { it.colorHex }.toSet().size == 4)
+    assertEquals("#F59E0B", seeded.first { it.name == "Dom" }.colorHex)
+
+    // Add custom category with custom color from color wheel
+    repo.addFolder(icon = "🎸", name = "Muzyka", colorHex = "#e11d48")
+    val music = dao.getFoldersOnce().first { it.name == "Muzyka" }
+    assertEquals("#E11D48", music.colorHex)
+
+    // Edit category color
+    repo.updateFolder(music.copy(colorHex = "#06b6d4"))
+    assertEquals("#06B6D4", dao.getFoldersOnce().first { it.id == music.id }.colorHex)
+
+    // Export and import preserves custom color
+    val backupJson = repo.exportToJson()
+    repo.updateFolder(music.copy(colorHex = "#111111"))
+    assertTrue(repo.importFromJson(backupJson))
+    assertEquals("#06B6D4", dao.getFoldersOnce().first { it.name == "Muzyka" }.colorHex)
+
+    // Legacy backup JSON without colorHex field assigns valid defaults gracefully
+    val legacyRoot = org.json.JSONObject(backupJson)
+    val foldersArr = legacyRoot.getJSONArray("folders")
+    for (i in 0 until foldersArr.length()) {
+      foldersArr.getJSONObject(i).remove("colorHex")
+    }
+    assertTrue(repo.importFromJson(legacyRoot.toString()))
+    val restoredAfterLegacy = dao.getFoldersOnce()
+    assertEquals("#F59E0B", restoredAfterLegacy.first { it.name == "Dom" }.colorHex)
+    assertTrue(restoredAfterLegacy.all { it.colorHex.startsWith("#") && it.colorHex.length == 7 })
+  }
 }
+
+

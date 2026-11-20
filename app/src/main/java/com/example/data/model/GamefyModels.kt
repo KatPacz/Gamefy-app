@@ -364,6 +364,26 @@ fun calculateAutoPenaltyRange(
   return minP to maxP
 }
 
+fun resolveGiveUpPenaltyRange(
+  coinReward: Int,
+  difficultyCode: String,
+  penaltyModeCode: String,
+  penaltyMinCoins: Int,
+  penaltyMaxCoins: Int,
+): Pair<Int, Int> {
+  val mode = PenaltyMode.fromCode(penaltyModeCode)
+  if (mode != PenaltyMode.NONE && (penaltyMinCoins > 0 || penaltyMaxCoins > 0)) {
+    val low = penaltyMinCoins.coerceAtLeast(0)
+    val high = penaltyMaxCoins.coerceAtLeast(low)
+    return low to high
+  }
+  return calculateAutoPenaltyRange(
+    baseCoins = coinReward,
+    difficulty = TaskDifficulty.fromCode(difficultyCode),
+    penaltyMode = PenaltyMode.ON_SKIP_ONLY,
+  )
+}
+
 fun calculateAutoRewardAndPenalty(
   difficulty: TaskDifficulty,
   effort: TaskEffortBucket,
