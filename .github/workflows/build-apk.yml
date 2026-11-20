@@ -24,13 +24,16 @@ jobs:
       - name: Skonfiguruj Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Przygotuj Gradle
+      - name: Przygotuj Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Sprawdz Gradle
+        run: gradle --version
 
       - name: Zbuduj instalacyjny APK
-        run: |
-          chmod +x ./gradlew
-          ./gradlew :app:assembleDebug --no-daemon
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Zapisz APK do pobrania
         uses: actions/upload-artifact@v4
