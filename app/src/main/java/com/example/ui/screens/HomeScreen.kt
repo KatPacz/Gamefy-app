@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -39,6 +40,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -101,6 +103,7 @@ fun HomeScreen(
   val palette = LocalGamefyPalette.current
   val now = System.currentTimeMillis()
   var expandedTaskId by remember { mutableStateOf<Long?>(null) }
+  var isTimerExpanded by rememberSaveable { mutableStateOf(true) }
 
   val urgentTasks = remember(uiState.tasks, now) {
     uiState.tasks
@@ -137,16 +140,26 @@ fun HomeScreen(
       contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
       verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-      item {
-        MainTimerCard(
-          timerState = timerState,
-          onSelectMode = onSelectTimerMode,
-          onSelectPreset = onSelectTimerPreset,
-          onUpdateCustomDuration = onUpdateCustomDuration,
-          onTogglePlayPause = onToggleMainTimer,
-          onSkip = onSkipMainTimer,
-          onReset = onResetMainTimer,
-        )
+      item(key = "home_main_timer") {
+        Box(modifier = Modifier.fillMaxWidth().animateContentSize()) {
+          if (isTimerExpanded) {
+            MainTimerCard(
+              timerState = timerState,
+              onSelectMode = onSelectTimerMode,
+              onSelectPreset = onSelectTimerPreset,
+              onUpdateCustomDuration = onUpdateCustomDuration,
+              onTogglePlayPause = onToggleMainTimer,
+              onSkip = onSkipMainTimer,
+              onReset = onResetMainTimer,
+              onCollapse = { isTimerExpanded = false },
+            )
+          } else {
+            CollapsedMainTimerButton(
+              timerState = timerState,
+              onExpand = { isTimerExpanded = true },
+            )
+          }
+        }
       }
 
       item {
@@ -278,6 +291,65 @@ fun HomeScreen(
   }
 }
 
+/** Kompaktowy, pojedynczy przycisk w miejscu dużego kafelka. */
+@Composable
+private fun CollapsedMainTimerButton(
+  timerState: MainTimerState,
+  onExpand: () -> Unit,
+) {
+  val palette = LocalGamefyPalette.current
+  val shape = RoundedCornerShape(12.dp)
+  val remainingTime = if (timerState.mode == MainTimerMode.TIMER || timerState.remainingSeconds >= 3600) {
+    String.format(
+      "%02d:%02d:%02d",
+      timerState.remainingSeconds / 3600,
+      (timerState.remainingSeconds % 3600) / 60,
+      timerState.remainingSeconds % 60,
+    )
+  } else {
+    String.format(
+      "%02d:%02d",
+      timerState.remainingSeconds / 60,
+      timerState.remainingSeconds % 60,
+    )
+  }
+
+  Row(
+    modifier = Modifier
+      .clip(shape)
+      .background(Brush.horizontalGradient(listOf(palette.accent, palette.accentSecondary)))
+      .border(2.dp, palette.outline, shape)
+      .clickable(
+        role = Role.Button,
+        onClickLabel = "Rozwiń ${timerState.mode.label}",
+        onClick = onExpand,
+      )
+      .testTag("main_timer_expand")
+      .padding(horizontal = 12.dp, vertical = 10.dp),
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+  ) {
+    PixelIcon(icon = "timer", size = 20.dp, monochromeTint = Color.White)
+    Text(
+      text = timerState.mode.label,
+      fontFamily = PixelFontFamily,
+      fontSize = 13.sp,
+      fontWeight = FontWeight.Bold,
+      color = Color.White,
+    )
+    // Odliczanie jest nadal widoczne, gdy timer pracuje w tle.
+    if (timerState.isRunning) {
+      Text(
+        text = remainingTime,
+        fontFamily = BodyFontFamily,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        color = Color.White,
+      )
+    }
+  }
+}
+
 @Composable
 private fun MainTimerCard(
   timerState: MainTimerState,
@@ -287,6 +359,7 @@ private fun MainTimerCard(
   onTogglePlayPause: () -> Unit,
   onSkip: () -> Unit,
   onReset: () -> Unit,
+  onCollapse: () -> Unit,
 ) {
   val palette = LocalGamefyPalette.current
   val shape = RoundedCornerShape(22.dp)
@@ -304,6 +377,41 @@ private fun MainTimerCard(
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+      // Przycisk zwijania, niezależny od samego odliczania.
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+      ) {
+        Row(
+          modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color.Black.copy(alpha = 0.18f))
+            .clickable(
+              role = Role.Button,
+              onClickLabel = "Zwiń Pomodoro / Timer",
+              onClick = onCollapse,
+            )
+            .testTag("main_timer_collapse")
+            .padding(horizontal = 9.dp, vertical = 4.dp),
+          horizontalArrangement = Arrangement.spacedBy(4.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          Icon(
+            imageVector = Icons.Default.Remove,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(16.dp),
+          )
+          Text(
+            text = "Zwiń",
+            fontFamily = BodyFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            color = Color.White,
+          )
+        }
+      }
+
       // Mode Switcher: Tryb Pomodoro vs Timer
       Row(
         modifier = Modifier
