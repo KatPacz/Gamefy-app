@@ -57,12 +57,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.data.model.OnboardingArea
 import com.example.data.model.OnboardingTimePref
 import com.example.data.model.READY_TASK_TEMPLATES
 import com.example.data.model.ReadyTaskTemplate
 import com.example.data.model.formatFrequencyLabel
 import com.example.ui.components.PixelButton
+import com.example.ui.components.PixelEmptyStateCard
 import com.example.ui.components.PixelCard
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
@@ -151,10 +153,10 @@ fun ReadyTasksDatabaseScreen(
         }
         Column(modifier = Modifier.weight(1f)) {
           Text(
-            text = "BAZA GOTOWYCH ZADAŃ",
+            text = "Baza gotowych zadań",
             fontFamily = PixelFontFamily,
             fontWeight = FontWeight.Bold,
-            fontSize = 15.sp,
+            fontSize = 18.sp,
             color = palette.textPrimary,
           )
           Text(
@@ -368,13 +370,20 @@ fun ReadyTasksDatabaseScreen(
       ) {
         if (filteredTemplates.isEmpty()) {
           item {
-            PixelCard {
-              Text(
-                text = "Brak pasujących szablonów zadań. Spróbuj zmienić wyszukiwanie lub filtry.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = palette.textMuted,
-              )
-            }
+            PixelEmptyStateCard(
+              illustrationRes = R.drawable.img_empty_tasks,
+              illustrationContentDescription = "Ilustracja pustych wyników bazy zadań",
+              title = "Brak pasujących szablonów",
+              subtitle = "Spróbuj zmienić wyszukiwanie lub wyczyścić aktywne filtry.",
+              primaryActionLabel = "Wyczyść filtry",
+              primaryActionTestTag = "ready_tasks_empty_clear_filters_button",
+              onPrimaryAction = {
+                searchQuery = ""
+                selectedTimePref = null
+                selectedDifficulty = null
+                selectedAttribute = null
+              },
+            )
           }
         } else {
           items(filteredTemplates, key = { it.id }) { tpl ->
@@ -460,11 +469,11 @@ private fun ReadyTaskTemplateCard(
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
       ) {
-        TemplateMetaBadge("⏱ ${template.estimatedMinutes} min")
+        TemplateMetaBadge("${template.estimatedMinutes} min")
         TemplateMetaBadge("Trudność ${template.difficultyLevel}/5")
-        TemplateMetaBadge("+${template.coins} 🪙 · +${template.exp} EXP")
+        TemplateMetaBadge("+${template.coins} monet · +${template.exp} EXP")
         if (template.subtasks.isNotEmpty()) {
-          TemplateMetaBadge("📋 ${formatPolishSubtasksCount(template.subtasks.size)}")
+          TemplateMetaBadge(formatPolishSubtasksCount(template.subtasks.size))
         }
       }
 
@@ -546,7 +555,7 @@ private fun ReadyTaskDetailDialog(
     title = {
       Column {
         Text(
-          text = "${template.area.icon} ${template.area.label}",
+          text = template.area.label,
           style = MaterialTheme.typography.labelSmall,
           color = palette.accent,
         )
@@ -580,7 +589,7 @@ private fun ReadyTaskDetailDialog(
           style = MaterialTheme.typography.bodySmall,
         )
         Text(
-          text = "Nagroda po wykonaniu: +${template.exp} EXP · +${template.coins} 🪙",
+          text = "Zdobycz po wykonaniu: +${template.exp} EXP · +${template.coins} monet",
           style = MaterialTheme.typography.bodySmall,
           fontWeight = FontWeight.SemiBold,
         )
@@ -610,7 +619,7 @@ private fun ReadyTaskDetailDialog(
             )
           }
           Text(
-            text = "Podzadania pomagają rozbić zadanie — nagroda przyznawana jest raz za ukończenie całości.",
+            text = "Podzadania pomagają rozbić zadanie — zdobycz przyznawana jest raz za ukończenie całości.",
             style = MaterialTheme.typography.labelSmall,
             color = palette.textMuted,
           )

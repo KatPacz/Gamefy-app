@@ -30,7 +30,7 @@ object NotificationHelper {
         "Przypomnienia o zadaniach",
         NotificationManager.IMPORTANCE_DEFAULT,
       ).apply {
-        description = "Lokalne przypomnienia o zbliżających się lub spóźnionych zadaniach"
+        description = "Lokalne przypomnienia o zbliżających się zadaniach lub po terminie"
       }
       val timerChannel = NotificationChannel(
         CHANNEL_TIMER,
@@ -52,6 +52,33 @@ object NotificationHelper {
       ) == PackageManager.PERMISSION_GRANTED
     } else {
       true
+    }
+  }
+
+  fun areSystemNotificationsEnabled(context: Context): Boolean {
+    return NotificationManagerCompat.from(context).areNotificationsEnabled()
+  }
+
+  fun openSystemNotificationSettings(context: Context) {
+    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+        putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+      }
+    } else {
+      Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = android.net.Uri.fromParts("package", context.packageName, null)
+      }
+    }.apply {
+      addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching {
+      context.startActivity(intent)
+    }.onFailure {
+      val fallback = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+        data = android.net.Uri.fromParts("package", context.packageName, null)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      runCatching { context.startActivity(fallback) }
     }
   }
 
@@ -80,7 +107,7 @@ object NotificationHelper {
     )
 
     val notification = NotificationCompat.Builder(context, channelId)
-      .setSmallIcon(R.mipmap.ic_launcher_round)
+      .setSmallIcon(R.drawable.ic_stat_gamefy)
       .setContentTitle(title)
       .setContentText(body)
       .setStyle(NotificationCompat.BigTextStyle().bigText(body))

@@ -153,7 +153,7 @@ fun ColorWheelPickerDialog(
     onDismissRequest = onDismiss,
     title = {
       Text(
-        text = "Kolor kategorii",
+        text = "Kolor folderu",
         fontFamily = PixelFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = 18.sp,
@@ -191,9 +191,9 @@ fun ColorWheelPickerDialog(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
               ) {
-                PixelIcon(icon = previewIcon.ifBlank { "📁" }, size = 15.dp)
+                PixelIcon(icon = previewIcon.ifBlank { "folder" }, size = 15.dp)
                 Text(
-                  text = previewName.ifBlank { "Nowa kategoria" },
+                  text = previewName.ifBlank { "Nowy folder" },
                   style = MaterialTheme.typography.titleSmall,
                   fontWeight = FontWeight.Bold,
                   color = palette.textPrimary,
@@ -214,7 +214,7 @@ fun ColorWheelPickerDialog(
         Box(
           modifier = Modifier
             .size(204.dp)
-            .semantics { contentDescription = "Koło kolorów kategorii" }
+            .semantics { contentDescription = "Koło kolorów folderu" }
             .testTag("category_color_wheel"),
           contentAlignment = Alignment.Center,
         ) {

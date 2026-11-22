@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,6 +30,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.Check
@@ -54,6 +56,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -63,41 +66,45 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.data.local.AttributeEntity
 import com.example.data.local.FolderEntity
 import com.example.data.local.TagEntity
+import com.example.ui.components.PixelEmptyStateCard
 import com.example.data.local.parseStringCsv
-import com.example.data.model.AchievementDefinition
+import com.example.data.model.AchievementCategory
 import com.example.data.model.AppFontFamilyOption
 import com.example.data.model.AppFontSize
 import com.example.data.model.AppThemeId
 import com.example.data.model.AppWordSpacing
 import com.example.data.model.GAMEFY_ACHIEVEMENTS
+import com.example.data.model.GAMEFY_ACHIEVEMENT_GROUPS
 import com.example.data.model.NotificationSettings
 import com.example.data.model.StatsCoinRange
 import com.example.data.model.StatsCompletionPeriod
 import com.example.data.model.buildCompletionChartSeries
+import com.example.data.model.buildPlayerStatsSnapshot
 import com.example.data.model.calculateLevel
 import com.example.data.model.computeCoinEconomySummary
+import com.example.data.model.computeGroupProgress
 import com.example.data.model.computePlayerAnalytics
-import com.example.data.model.toNotificationSettings
+import com.example.data.model.isWeeklyStreakFreezeAvailable
 import com.example.notifications.NotificationHelper
 import com.example.ui.GamefyUiState
 import com.example.ui.components.PixelButton
 import com.example.ui.components.PixelCard
 import com.example.ui.components.PixelIcon
 import com.example.ui.components.PixelProgressBar
-import com.example.ui.components.resolveFolderColor
+import com.example.ui.components.PixelSectionHeader
 import com.example.ui.theme.BodyFontFamily
 import com.example.ui.theme.LocalGamefyPalette
-import com.example.ui.theme.PixelColors
 import com.example.ui.theme.PixelFontFamily
-import com.example.ui.theme.bodyFontFamilyFor
-import com.example.ui.theme.paletteForTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -110,18 +117,12 @@ private enum class ProfileSubTab(val label: String, val tag: String) {
   SETTINGS("Ustawienia", "profile_tab_settings"),
 }
 
-private enum class AchievementFilter(val label: String) {
-  ALL("Wszystkie"),
-  UNLOCKED("Zdobyte"),
-  LOCKED("Do zdobycia"),
-  SECRET("Tajne"),
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ProfileScreen(
   uiState: GamefyUiState,
   scrollToAchievementsTrigger: Int = 0,
+  scrollToNotificationsTrigger: Int = 0,
   onAddAttribute: (String, String) -> Unit,
   onUpdateAttribute: (AttributeEntity) -> Unit,
   onDeleteAttribute: (Long) -> Unit,
@@ -138,6 +139,7 @@ fun ProfileScreen(
   onToggleNotifications: (Boolean) -> Unit,
   onUpdateNotificationSettings: (NotificationSettings) -> Unit,
   onExportBackup: suspend () -> String,
+  onBackupExportResult: (Boolean) -> Unit = {},
   onImportBackup: (String) -> Unit,
   onOpenReadyTasksDb: () -> Unit = {},
   onOpenRandomQuest: () -> Unit = {},
@@ -149,25 +151,45 @@ fun ProfileScreen(
   val listState = rememberLazyListState()
 
   var selectedTab by rememberSaveable { mutableStateOf(ProfileSubTab.CHARACTER) }
-  var achievementFilter by rememberSaveable { mutableStateOf(AchievementFilter.ALL) }
+  var selectedAchievementCategory by rememberSaveable { mutableStateOf<AchievementCategory?>(null) }
+  var achievementSortMode by rememberSaveable { mutableStateOf(AchievementSortMode.CLOSEST) }
   var statsCompletionPeriod by rememberSaveable { mutableStateOf(StatsCompletionPeriod.DAILY) }
   var statsCoinRange by rememberSaveable { mutableStateOf(StatsCoinRange.DAYS_30) }
   var editingAttribute by remember { mutableStateOf<AttributeEntity?>(null) }
   var showAddAttributeDialog by remember { mutableStateOf(false) }
   var showFolderManagerDialog by remember { mutableStateOf(false) }
   var showTagEditorDialog by remember { mutableStateOf(false) }
+  var notificationPermissionDenied by remember { mutableStateOf(false) }
+
+  val hasBackupWarningBanner = remember(uiState.profile.lastBackupExportTimestamp) {
+    com.example.data.model.isBackupOverdueWarning(uiState.profile.lastBackupExportTimestamp)
+  }
 
   LaunchedEffect(scrollToAchievementsTrigger) {
     if (scrollToAchievementsTrigger > 0) {
       selectedTab = ProfileSubTab.ACHIEVEMENTS
-      achievementFilter = AchievementFilter.ALL
+      selectedAchievementCategory = null
+      achievementSortMode = AchievementSortMode.CLOSEST
       listState.animateScrollToItem(0)
+    }
+  }
+
+  LaunchedEffect(scrollToNotificationsTrigger) {
+    if (scrollToNotificationsTrigger > 0) {
+      selectedTab = ProfileSubTab.SETTINGS
+      withFrameNanos { }
+      val targetIdx = settingsSectionIndex(
+        section = ProfileSettingsSection.NOTIFICATIONS,
+        hasBackupWarningBanner = hasBackupWarningBanner,
+      )
+      listState.animateScrollToItem(targetIdx)
     }
   }
 
   val notificationPermissionLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.RequestPermission(),
   ) { granted ->
+    notificationPermissionDenied = !granted
     onToggleNotifications(granted)
   }
 
@@ -177,13 +199,19 @@ fun ProfileScreen(
     if (uri != null) {
       scope.launch {
         val json = onExportBackup()
-        runCatching {
+        val ok = runCatching {
           context.contentResolver.openOutputStream(uri)?.use { stream ->
             stream.write(json.toByteArray(Charsets.UTF_8))
-          }
-        }
+          } != null
+        }.getOrDefault(false)
+        onBackupExportResult(ok)
       }
     }
+  }
+
+  val launchBackupExport = {
+    val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+    exportLauncher.launch("gamefy-kopia-$date.json")
   }
 
   val importLauncher = rememberLauncherForActivityResult(
@@ -204,15 +232,45 @@ fun ProfileScreen(
   val unlockedAch = remember(uiState.profile.unlockedAchievementsCsv) {
     parseStringCsv(uiState.profile.unlockedAchievementsCsv)
   }
+  val validUnlockedAchCount = remember(unlockedAch) {
+    GAMEFY_ACHIEVEMENTS.count { it.id in unlockedAch }
+  }
   val overallLevel = remember(uiState.profile.exp) { calculateLevel(uiState.profile.exp) }
+  val streakFreezeAvailable = remember(uiState.profile.streakFreezeUsedWeekKey) {
+    isWeeklyStreakFreezeAvailable(uiState.profile.streakFreezeUsedWeekKey)
+  }
 
-  val filteredAchievements = remember(unlockedAch, achievementFilter) {
-    when (achievementFilter) {
-      AchievementFilter.ALL -> GAMEFY_ACHIEVEMENTS
-      AchievementFilter.UNLOCKED -> GAMEFY_ACHIEVEMENTS.filter { it.id in unlockedAch }
-      AchievementFilter.LOCKED -> GAMEFY_ACHIEVEMENTS.filter { it.id !in unlockedAch }
-      AchievementFilter.SECRET -> GAMEFY_ACHIEVEMENTS.filter { it.isSecret }
+  val playerStatsSnapshot = remember(
+    uiState.profile,
+    uiState.tasks,
+    uiState.attributes,
+    uiState.activityEvents,
+  ) {
+    buildPlayerStatsSnapshot(
+      profile = uiState.profile,
+      tasks = uiState.tasks,
+      attributes = uiState.attributes,
+      events = uiState.activityEvents,
+    )
+  }
+  val visibleAchievementGroups = remember(
+    playerStatsSnapshot,
+    unlockedAch,
+    selectedAchievementCategory,
+    achievementSortMode,
+  ) {
+    val allProgress = GAMEFY_ACHIEVEMENT_GROUPS.map { group ->
+      computeGroupProgress(
+        group = group,
+        stats = playerStatsSnapshot,
+        unlockedIds = unlockedAch,
+      )
     }
+    filterAndSortAchievementGroups(
+      allProgress = allProgress,
+      selectedCategory = selectedAchievementCategory,
+      sortMode = achievementSortMode,
+    )
   }
 
   val playerAnalytics = remember(uiState.profile, uiState.tasks, uiState.activityEvents) {
@@ -266,7 +324,7 @@ fun ProfileScreen(
               color = if (selected) palette.accent else Color.Transparent,
               modifier = Modifier
                 .weight(1f)
-                .height(42.dp)
+                .heightIn(min = 48.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .clickable(role = Role.Tab) {
                   selectedTab = tab
@@ -279,11 +337,11 @@ fun ProfileScreen(
                 modifier = Modifier.padding(horizontal = 2.dp),
               ) {
                 Text(
-                  text = tab.label.uppercase(),
+                  text = tab.label,
                   fontFamily = PixelFontFamily,
-                  fontWeight = FontWeight.Bold,
-                  fontSize = 9.5.sp,
-                  color = if (selected) palette.onAccent else palette.textMuted,
+                  fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                  fontSize = 13.sp,
+                  color = if (selected) palette.onAccent else palette.textPrimary,
                   maxLines = 1,
                   overflow = TextOverflow.Ellipsis,
                 )
@@ -291,6 +349,18 @@ fun ProfileScreen(
             }
           }
         }
+      }
+
+      if (selectedTab == ProfileSubTab.SETTINGS) {
+        ProfileSettingsShortcutsBar(
+          onJumpToSection = { section ->
+            val idx = settingsSectionIndex(
+              section = section,
+              hasBackupWarningBanner = hasBackupWarningBanner,
+            )
+            scope.launch { listState.animateScrollToItem(idx) }
+          },
+        )
       }
 
       LazyColumn(
@@ -313,43 +383,46 @@ fun ProfileScreen(
                 bestStreak = uiState.profile.bestStreak,
                 tasksDone = uiState.profile.tasksDone,
                 pomosDone = uiState.profile.pomosDone,
-                unlockedCount = unlockedAch.size,
+                unlockedCount = validUnlockedAchCount,
                 totalAchievements = GAMEFY_ACHIEVEMENTS.size,
                 onOpenAchievements = { selectedTab = ProfileSubTab.ACHIEVEMENTS },
               )
             }
 
+            item(key = "profile_backup_status_card") {
+              ProfileBackupStatusCard(
+                lastBackupExportTimestamp = uiState.profile.lastBackupExportTimestamp,
+                onCreateBackup = launchBackupExport,
+              )
+            }
+
             item(key = "attributes_header") {
-              Row(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .padding(top = 4.dp, start = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-              ) {
-                Text(
-                  text = "ATRYBUTY (AWANS = +1 💎)",
-                  style = MaterialTheme.typography.titleSmall,
-                  color = palette.textMuted,
-                )
-                PixelButton(
-                  text = "+ Dodaj",
-                  compact = true,
-                  modifier = Modifier.testTag("add_attribute_button"),
-                  onClick = { showAddAttributeDialog = true },
-                )
-              }
+              PixelSectionHeader(
+                title = "Atrybuty",
+                subtitle = "Awans atrybutu = +1 brylant",
+                modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+                trailing = {
+                  PixelButton(
+                    text = "+ Nowy",
+                    compact = true,
+                    modifier = Modifier.testTag("add_attribute_button"),
+                    onClick = { showAddAttributeDialog = true },
+                  )
+                },
+              )
             }
 
             if (uiState.attributes.isEmpty()) {
               item(key = "attributes_empty") {
-                PixelCard {
-                  Text(
-                    text = "Brak atrybutów. Dodaj np. Siła, Wiedza lub Zdrowie, aby rozwijać postać za wykonane zadania.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = palette.textMuted,
-                  )
-                }
+                PixelEmptyStateCard(
+                  illustrationRes = R.drawable.img_empty_tasks,
+                  illustrationContentDescription = "Ilustracja pustej listy atrybutów",
+                  title = "Brak atrybutów",
+                  subtitle = "Dodaj np. Siła, Wiedza lub Zdrowie, aby rozwijać postać za wykonane zadania.",
+                  primaryActionLabel = "Dodaj atrybut",
+                  onPrimaryAction = { showAddAttributeDialog = true },
+                  primaryActionTestTag = "empty_attributes_add_button",
+                )
               }
             } else {
               items(uiState.attributes, key = { "attr_${it.id}" }) { attr ->
@@ -362,97 +435,18 @@ fun ProfileScreen(
           }
 
           ProfileSubTab.ACHIEVEMENTS -> {
-            item(key = "achievements_summary") {
-              val achFraction = if (GAMEFY_ACHIEVEMENTS.isEmpty()) {
-                0f
-              } else {
-                unlockedAch.size.toFloat() / GAMEFY_ACHIEVEMENTS.size.toFloat()
-              }
-              PixelCard {
-                Text(
-                  text = "OSIĄGNIĘCIA (${unlockedAch.size}/${GAMEFY_ACHIEVEMENTS.size})",
-                  style = MaterialTheme.typography.titleSmall,
-                  color = palette.textMuted,
-                  modifier = Modifier.testTag("achievements_section_header"),
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                PixelProgressBar(
-                  progress = achFraction,
-                  leadingIcon = "trophy",
-                  barHeight = 16.dp,
-                  fillStartColor = PixelColors.Gold,
-                  fillEndColor = PixelColors.Orange,
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Surface(
-                  shape = RoundedCornerShape(12.dp),
-                  color = palette.surfaceSubtle,
-                  border = BorderStroke(1.dp, palette.divider),
-                  modifier = Modifier.fillMaxWidth(),
-                ) {
-                  Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                  ) {
-                    Text(
-                      text = "🔥 Aktualna seria: ${uiState.profile.currentStreak} dni   ·   🏆 Rekord: ${uiState.profile.bestStreak} dni",
-                      style = MaterialTheme.typography.labelLarge,
-                      fontWeight = FontWeight.Bold,
-                      color = palette.textPrimary,
-                    )
-                    Text(
-                      text = "Każde odblokowane trofeum przyznaje bonusowe EXP, monety lub kryształy.",
-                      style = MaterialTheme.typography.bodySmall,
-                      color = palette.textMuted,
-                    )
-                  }
-                }
-              }
-            }
-
-            item(key = "achievements_filters") {
-              FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-              ) {
-                AchievementFilter.entries.forEach { filter ->
-                  val selected = achievementFilter == filter
-                  Surface(
-                    shape = RoundedCornerShape(50),
-                    color = if (selected) palette.accent else palette.surface,
-                    border = BorderStroke(1.5.dp, if (selected) palette.outline else palette.divider),
-                    modifier = Modifier.clickable { achievementFilter = filter },
-                  ) {
-                    Text(
-                      text = filter.label,
-                      style = MaterialTheme.typography.labelMedium,
-                      fontWeight = FontWeight.SemiBold,
-                      color = if (selected) Color.White else palette.textPrimary,
-                      modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                    )
-                  }
-                }
-              }
-            }
-
-            if (filteredAchievements.isEmpty()) {
-              item(key = "achievements_empty") {
-                PixelCard {
-                  Text(
-                    text = "Brak osiągnięć w wybranym filtrze.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = palette.textMuted,
-                  )
-                }
-              }
-            } else {
-              items(filteredAchievements, key = { "ach_${it.id}" }) { ach ->
-                AchievementCard(
-                  ach = ach,
-                  isUnlocked = ach.id in unlockedAch,
-                )
-              }
-            }
+            profileAchievementsItems(
+              unlockedCount = validUnlockedAchCount,
+              totalCount = GAMEFY_ACHIEVEMENTS.size,
+              currentStreak = uiState.profile.currentStreak,
+              bestStreak = uiState.profile.bestStreak,
+              streakFreezeAvailable = streakFreezeAvailable,
+              selectedCategory = selectedAchievementCategory,
+              onSelectCategory = { selectedAchievementCategory = it },
+              sortMode = achievementSortMode,
+              onSelectSortMode = { achievementSortMode = it },
+              visibleGroups = visibleAchievementGroups,
+            )
           }
 
           ProfileSubTab.STATS -> {
@@ -470,552 +464,36 @@ fun ProfileScreen(
           }
 
           ProfileSubTab.SETTINGS -> {
-            item(key = "settings_org_header") {
-              Text(
-                text = "ORGANIZACJA ZADAŃ",
-                style = MaterialTheme.typography.titleSmall,
-                color = palette.textMuted,
-                modifier = Modifier.padding(start = 4.dp),
-              )
-            }
-            item(key = "settings_org_card") {
-              PixelCard {
-                // Folders row
-                Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  verticalAlignment = Alignment.CenterVertically,
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                  Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+            profileSettingsItems(
+              uiState = uiState,
+              notificationPermissionDenied = notificationPermissionDenied,
+              onToggleNotifications = { enable ->
+                if (enable) {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    !NotificationHelper.hasNotificationPermission(context)
                   ) {
-                    Text(
-                      text = "Kategorie i foldery (${uiState.folders.size})",
-                      style = MaterialTheme.typography.titleSmall,
-                      fontWeight = FontWeight.Bold,
-                      color = palette.textPrimary,
-                    )
-                    if (uiState.folders.isEmpty()) {
-                      Text(
-                        text = "Brak własnych kategorii",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = palette.textMuted,
-                      )
-                    } else {
-                      FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                      ) {
-                        uiState.folders.take(6).forEach { folder ->
-                          val folderColor = resolveFolderColor(folder)
-                          Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = folderColor.copy(alpha = 0.12f),
-                            border = BorderStroke(1.dp, folderColor),
-                          ) {
-                            Row(
-                              modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                              verticalAlignment = Alignment.CenterVertically,
-                              horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                              Box(
-                                modifier = Modifier
-                                  .size(8.dp)
-                                  .clip(CircleShape)
-                                  .background(folderColor),
-                              )
-                              Text(
-                                text = folder.name,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = palette.textPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                              )
-                            }
-                          }
-                        }
-                      }
-                    }
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                  } else {
+                    notificationPermissionDenied = false
+                    onToggleNotifications(true)
                   }
-                  Spacer(modifier = Modifier.width(8.dp))
-                  PixelButton(
-                    text = "Zarządzaj",
-                    compact = true,
-                    modifier = Modifier.testTag("open_folder_editor_button"),
-                    leadingIcon = {
-                      Icon(
-                        imageVector = Icons.Default.FolderOpen,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp),
-                      )
-                    },
-                    onClick = { showFolderManagerDialog = true },
-                  )
+                } else {
+                  onToggleNotifications(false)
                 }
-
-                HorizontalDivider(
-                  modifier = Modifier.padding(vertical = 12.dp),
-                  color = palette.divider,
-                )
-
-                // Tags row
-                Row(
-                  modifier = Modifier.fillMaxWidth(),
-                  verticalAlignment = Alignment.CenterVertically,
-                  horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                  Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                      text = "Tagi (${uiState.tags.size})",
-                      style = MaterialTheme.typography.titleSmall,
-                      fontWeight = FontWeight.Bold,
-                      color = palette.textPrimary,
-                    )
-                    Text(
-                      text = uiState.tags.take(5).joinToString(" ") { "#${it.name}" }
-                        .ifBlank { "Wyszukuj, edytuj i usuwaj tagi" },
-                      style = MaterialTheme.typography.bodySmall,
-                      color = palette.textMuted,
-                      maxLines = 1,
-                      overflow = TextOverflow.Ellipsis,
-                    )
-                  }
-                  Spacer(modifier = Modifier.width(8.dp))
-                  PixelButton(
-                    text = "Edycja tagów",
-                    compact = true,
-                    modifier = Modifier.testTag("open_tag_editor_button"),
-                    leadingIcon = {
-                      Icon(
-                        imageVector = Icons.Default.LocalOffer,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp),
-                      )
-                    },
-                    onClick = { showTagEditorDialog = true },
-                  )
-                }
-
-                HorizontalDivider(
-                  modifier = Modifier.padding(vertical = 12.dp),
-                  color = palette.divider,
-                )
-
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                  Text(
-                    text = "Przeglądaj przykładowe zadania i dodawaj je do swojej biblioteki.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = palette.textMuted,
-                  )
-                  PixelButton(
-                    text = "Baza gotowych zadań",
-                    compact = true,
-                    modifier = Modifier
-                      .fillMaxWidth()
-                      .testTag("open_ready_tasks_db_button"),
-                    leadingIcon = {
-                      Icon(
-                        imageVector = Icons.Default.LibraryBooks,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp),
-                      )
-                    },
-                    onClick = onOpenReadyTasksDb,
-                  )
-
-                  PixelButton(
-                    text = "Random Side Quest",
-                    compact = true,
-                    containerColor = PixelColors.Gold,
-                    contentColor = palette.outline,
-                    modifier = Modifier
-                      .fillMaxWidth()
-                      .testTag("open_random_side_quest_button"),
-                    leadingIcon = {
-                      Icon(
-                        imageVector = Icons.Default.Casino,
-                        contentDescription = null,
-                        tint = palette.outline,
-                        modifier = Modifier.size(16.dp),
-                      )
-                    },
-                    onClick = onOpenRandomQuest,
-                  )
-                }
-              }
-            }
-
-            item(key = "settings_appearance_header") {
-              Text(
-                text = "WYGLĄD I POWIADOMIENIA",
-                style = MaterialTheme.typography.titleSmall,
-                color = palette.textMuted,
-                modifier = Modifier.padding(top = 4.dp, start = 4.dp),
-              )
-            }
-            item(key = "settings_appearance_card") {
-              PixelCard {
-                Text(
-                  text = "Motyw kolorystyczny",
-                  style = MaterialTheme.typography.titleSmall,
-                  fontWeight = FontWeight.Bold,
-                  color = palette.textPrimary,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                val themeGroups = remember {
-                  listOf(
-                    "Dzienne" to AppThemeId.entries.filter { !it.isDark && !it.isHighContrast },
-                    "Nocne" to AppThemeId.entries.filter { it.isDark && !it.isHighContrast },
-                    "Wysoki kontrast" to AppThemeId.entries.filter { it.isHighContrast },
-                  )
-                }
-
-                themeGroups.forEachIndexed { groupIndex, (groupTitle, themes) ->
-                  if (groupIndex > 0) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                  }
-                  Text(
-                    text = groupTitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = palette.textMuted,
-                    fontWeight = FontWeight.SemiBold,
-                  )
-                  Spacer(modifier = Modifier.height(6.dp))
-                  FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                  ) {
-                    themes.forEach { theme ->
-                      val selected = uiState.themeId == theme
-                      val themePalette = remember(theme) { paletteForTheme(theme) }
-                      Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (selected) palette.accent else palette.surfaceSubtle,
-                        border = BorderStroke(
-                          if (selected || palette.isHighContrast) 2.dp else 1.5.dp,
-                          if (selected) palette.outline else palette.divider,
-                        ),
-                        modifier = Modifier
-                          .clickable { onSelectTheme(theme) }
-                          .testTag("theme_${theme.code}"),
-                      ) {
-                        Row(
-                          modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                          verticalAlignment = Alignment.CenterVertically,
-                          horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                          Box(
-                            modifier = Modifier
-                              .size(14.dp)
-                              .clip(CircleShape)
-                              .background(themePalette.accent)
-                              .border(1.5.dp, themePalette.outline, CircleShape),
-                          )
-                          Text(
-                            text = theme.label.uppercase(),
-                            fontFamily = PixelFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            color = if (selected) palette.onAccent else palette.textPrimary,
-                          )
-                          if (selected) {
-                            Icon(
-                              imageVector = Icons.Default.Check,
-                              contentDescription = null,
-                              tint = palette.onAccent,
-                              modifier = Modifier.size(14.dp),
-                            )
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-
-                HorizontalDivider(
-                  modifier = Modifier.padding(vertical = 12.dp),
-                  color = palette.divider,
-                )
-
-                Text(
-                  text = "Czcionka i czytelność",
-                  style = MaterialTheme.typography.titleSmall,
-                  fontWeight = FontWeight.Bold,
-                  color = palette.textPrimary,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                  text = "Rozmiar czcionki",
-                  style = MaterialTheme.typography.labelSmall,
-                  color = palette.textMuted,
-                  fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                FlowRow(
-                  horizontalArrangement = Arrangement.spacedBy(8.dp),
-                  verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                  AppFontSize.entries.forEach { sizeOpt ->
-                    val selected = uiState.fontSize == sizeOpt
-                    Surface(
-                      shape = RoundedCornerShape(10.dp),
-                      color = if (selected) palette.accent else palette.surfaceSubtle,
-                      border = BorderStroke(
-                        if (selected || palette.isHighContrast) 2.dp else 1.5.dp,
-                        if (selected) palette.outline else palette.divider,
-                      ),
-                      modifier = Modifier
-                        .clickable { onSelectFontSize(sizeOpt) }
-                        .testTag("font_size_${sizeOpt.code}"),
-                    ) {
-                      Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                      ) {
-                        Text(
-                          text = sizeOpt.label,
-                          style = MaterialTheme.typography.labelMedium,
-                          fontWeight = FontWeight.Bold,
-                          color = if (selected) palette.onAccent else palette.textPrimary,
-                        )
-                        if (selected) {
-                          Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = palette.onAccent,
-                            modifier = Modifier.size(14.dp),
-                          )
-                        }
-                      }
-                    }
-                  }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                  text = "Typ czcionki",
-                  style = MaterialTheme.typography.labelSmall,
-                  color = palette.textMuted,
-                  fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                FlowRow(
-                  horizontalArrangement = Arrangement.spacedBy(8.dp),
-                  verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                  AppFontFamilyOption.entries.forEach { familyOpt ->
-                    val selected = uiState.fontFamilyOption == familyOpt
-                    val previewFamily = remember(familyOpt) { bodyFontFamilyFor(familyOpt) }
-                    Surface(
-                      shape = RoundedCornerShape(10.dp),
-                      color = if (selected) palette.accent else palette.surfaceSubtle,
-                      border = BorderStroke(
-                        if (selected || palette.isHighContrast) 2.dp else 1.5.dp,
-                        if (selected) palette.outline else palette.divider,
-                      ),
-                      modifier = Modifier
-                        .clickable { onSelectFontFamily(familyOpt) }
-                        .testTag("font_family_${familyOpt.code}"),
-                    ) {
-                      Column(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                      ) {
-                        Row(
-                          verticalAlignment = Alignment.CenterVertically,
-                          horizontalArrangement = Arrangement.spacedBy(5.dp),
-                        ) {
-                          Text(
-                            text = familyOpt.label,
-                            fontFamily = previewFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            color = if (selected) palette.onAccent else palette.textPrimary,
-                          )
-                          if (selected) {
-                            Icon(
-                              imageVector = Icons.Default.Check,
-                              contentDescription = null,
-                              tint = palette.onAccent,
-                              modifier = Modifier.size(14.dp),
-                            )
-                          }
-                        }
-                        Text(
-                          text = familyOpt.subtitle,
-                          fontFamily = previewFamily,
-                          fontSize = 10.sp,
-                          color = if (selected) palette.onAccent.copy(alpha = 0.85f) else palette.textMuted,
-                        )
-                      }
-                    }
-                  }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-                Text(
-                  text = "Odstępy między słowami",
-                  style = MaterialTheme.typography.labelSmall,
-                  color = palette.textMuted,
-                  fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                FlowRow(
-                  horizontalArrangement = Arrangement.spacedBy(8.dp),
-                  verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                  AppWordSpacing.entries.forEach { spacingOpt ->
-                    val selected = uiState.wordSpacing == spacingOpt
-                    Surface(
-                      shape = RoundedCornerShape(10.dp),
-                      color = if (selected) palette.accent else palette.surfaceSubtle,
-                      border = BorderStroke(
-                        if (selected || palette.isHighContrast) 2.dp else 1.5.dp,
-                        if (selected) palette.outline else palette.divider,
-                      ),
-                      modifier = Modifier
-                        .clickable { onSelectWordSpacing(spacingOpt) }
-                        .testTag("word_spacing_${spacingOpt.code}"),
-                    ) {
-                      Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp),
-                      ) {
-                        Text(
-                          text = spacingOpt.label,
-                          style = MaterialTheme.typography.labelMedium,
-                          fontWeight = FontWeight.Bold,
-                          color = if (selected) palette.onAccent else palette.textPrimary,
-                        )
-                        if (selected) {
-                          Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = palette.onAccent,
-                            modifier = Modifier.size(14.dp),
-                          )
-                        }
-                      }
-                    }
-                  }
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-                Surface(
-                  shape = RoundedCornerShape(10.dp),
-                  color = palette.surfaceSubtle,
-                  border = BorderStroke(1.dp, palette.divider),
-                  modifier = Modifier.fillMaxWidth(),
-                ) {
-                  Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                  ) {
-                    Text(
-                      text = "Podgląd czytelności",
-                      style = MaterialTheme.typography.titleSmall,
-                      color = palette.textPrimary,
-                    )
-                    Text(
-                      text = "Zażółć gęślą jaźń — Twoje zadania i opisy będą wyglądać właśnie tak.",
-                      style = MaterialTheme.typography.bodySmall,
-                      color = palette.textMuted,
-                    )
-                  }
-                }
-
-                HorizontalDivider(
-                  modifier = Modifier.padding(vertical = 12.dp),
-                  color = palette.divider,
-                )
-
-                val notifSettings = remember(uiState.profile) {
-                  uiState.profile.toNotificationSettings()
-                }
-                NotificationPreferencesBlock(
-                  notificationsEnabled = uiState.profile.notificationsEnabled,
-                  settings = notifSettings,
-                  tasks = uiState.tasks,
-                  onToggleNotifications = { enable ->
-                    if (enable) {
-                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        !NotificationHelper.hasNotificationPermission(context)
-                      ) {
-                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                      } else {
-                        onToggleNotifications(true)
-                      }
-                    } else {
-                      onToggleNotifications(false)
-                    }
-                  },
-                  onUpdateSettings = onUpdateNotificationSettings,
-                )
-              }
-            }
-
-            item(key = "settings_backup_header") {
-              Text(
-                text = "KOPIA ZAPASOWA (URZĄDZENIE / DYSK GOOGLE)",
-                style = MaterialTheme.typography.titleSmall,
-                color = palette.textMuted,
-                modifier = Modifier.padding(top = 4.dp, start = 4.dp),
-              )
-            }
-            item(key = "settings_backup_card") {
-              PixelCard {
-                Text(
-                  text = "Aplikacja działa w 100% lokalnie i nie ma dostępu do internetu. Kopię możesz zapisać na urządzeniu lub wskazać folder Dysku Google w oknie systemowym.",
-                  style = MaterialTheme.typography.bodySmall,
-                  color = palette.textMuted,
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                  PixelButton(
-                    text = "Eksportuj",
-                    compact = true,
-                    modifier = Modifier.weight(1f),
-                    leadingIcon = {
-                      Icon(
-                        imageVector = Icons.Default.Upload,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp),
-                      )
-                    },
-                    onClick = {
-                      val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                      exportLauncher.launch("gamefy-kopia-$date.json")
-                    },
-                  )
-                  PixelButton(
-                    text = "Importuj",
-                    compact = true,
-                    containerColor = palette.surfaceSubtle,
-                    contentColor = palette.textPrimary,
-                    modifier = Modifier.weight(1f),
-                    leadingIcon = {
-                      Icon(
-                        imageVector = Icons.Default.Download,
-                        contentDescription = null,
-                        tint = palette.textPrimary,
-                        modifier = Modifier.size(16.dp),
-                      )
-                    },
-                    onClick = {
-                      importLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
-                    },
-                  )
-                }
-              }
-            }
+              },
+              onUpdateNotificationSettings = onUpdateNotificationSettings,
+              onOpenFolderManager = { showFolderManagerDialog = true },
+              onOpenTagManager = { showTagEditorDialog = true },
+              onOpenReadyTasksDb = onOpenReadyTasksDb,
+              onSaveBackup = launchBackupExport,
+              onLoadBackup = {
+                importLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+              },
+              onSelectTheme = onSelectTheme,
+              onSelectFontSize = onSelectFontSize,
+              onSelectFontFamily = onSelectFontFamily,
+              onSelectWordSpacing = onSelectWordSpacing,
+            )
           }
         }
       }
@@ -1094,7 +572,7 @@ private fun PlayerHeroCard(
       }
       Column(modifier = Modifier.weight(1f)) {
         Text(
-          text = "POZIOM $level",
+          text = "Poziom $level",
           style = MaterialTheme.typography.titleMedium,
           color = palette.textPrimary,
         )
@@ -1112,13 +590,13 @@ private fun PlayerHeroCard(
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       HeroStatTile(
-        emoji = "🔥",
+        icon = "flame",
         value = "$currentStreak dni",
         label = "Seria (rekord: $bestStreak)",
         modifier = Modifier.weight(1f),
       )
       HeroStatTile(
-        emoji = "✅",
+        icon = "check",
         value = "$tasksDone",
         label = "Ukończone zadania",
         modifier = Modifier.weight(1f),
@@ -1127,19 +605,25 @@ private fun PlayerHeroCard(
     Spacer(modifier = Modifier.height(8.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
       HeroStatTile(
-        emoji = "🍅",
+        icon = "timer",
         value = "$pomosDone",
         label = "Sesje skupienia",
         modifier = Modifier.weight(1f),
       )
       HeroStatTile(
-        emoji = "🏆",
+        icon = "trophy",
         value = "$unlockedCount/$totalAchievements",
-        label = "Osiągnięcia ›",
+        label = "Osiągnięcia",
+        showChevron = true,
         modifier = Modifier
           .weight(1f)
           .clip(RoundedCornerShape(12.dp))
-          .clickable(onClick = onOpenAchievements),
+          .clickable(
+            role = Role.Button,
+            onClickLabel = "Otwórz zakładkę osiągnięć",
+            onClick = onOpenAchievements,
+          )
+          .testTag("hero_achievements_tile"),
       )
     }
   }
@@ -1147,41 +631,56 @@ private fun PlayerHeroCard(
 
 @Composable
 private fun HeroStatTile(
-  emoji: String,
+  icon: String,
   value: String,
   label: String,
   modifier: Modifier = Modifier,
+  showChevron: Boolean = false,
 ) {
   val palette = LocalGamefyPalette.current
   Surface(
     shape = RoundedCornerShape(12.dp),
     color = palette.surfaceSubtle,
     border = BorderStroke(1.dp, palette.divider),
-    modifier = modifier,
+    modifier = modifier.heightIn(min = 48.dp),
   ) {
-    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-      ) {
-        Text(text = emoji, fontSize = 15.sp)
+    Row(
+      modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+      Column(modifier = Modifier.weight(1f)) {
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          PixelIcon(icon = icon, size = 18.dp)
+          Text(
+            text = value,
+            fontFamily = BodyFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+            color = palette.textPrimary,
+            maxLines = 1,
+          )
+        }
+        Spacer(modifier = Modifier.height(2.dp))
         Text(
-          text = value,
-          fontFamily = BodyFontFamily,
-          fontWeight = FontWeight.Bold,
-          fontSize = 16.sp,
-          color = palette.textPrimary,
+          text = label,
+          style = MaterialTheme.typography.labelSmall,
+          color = palette.textMuted,
           maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
         )
       }
-      Spacer(modifier = Modifier.height(2.dp))
-      Text(
-        text = label,
-        style = MaterialTheme.typography.labelSmall,
-        color = palette.textMuted,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-      )
+      if (showChevron) {
+        Icon(
+          imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+          contentDescription = null,
+          tint = palette.accent,
+          modifier = Modifier.size(20.dp),
+        )
+      }
     }
   }
 }
@@ -1231,14 +730,23 @@ private fun AttributeStatCard(
           Surface(
             shape = RoundedCornerShape(8.dp),
             color = palette.accent.copy(alpha = 0.14f),
+            modifier = Modifier.semantics(mergeDescendants = true) {
+              contentDescription = "Poziom ${level.level}, ${level.currentExp} z ${level.neededExp} EXP"
+            },
           ) {
-            Text(
-              text = "Poz. ${level.level} · ${level.currentExp}/${level.neededExp}",
-              style = MaterialTheme.typography.labelSmall,
-              fontWeight = FontWeight.Bold,
-              color = palette.accent,
+            Row(
               modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            )
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+              PixelIcon(icon = "star", size = 12.dp)
+              Text(
+                text = "${level.level} · ${level.currentExp}/${level.neededExp}",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = palette.accent,
+              )
+            }
           }
         }
         Spacer(modifier = Modifier.height(7.dp))
@@ -1258,120 +766,6 @@ private fun AttributeStatCard(
           tint = palette.textMuted,
           modifier = Modifier.size(20.dp),
         )
-      }
-    }
-  }
-}
-
-@Composable
-private fun AchievementCard(
-  ach: AchievementDefinition,
-  isUnlocked: Boolean,
-) {
-  val palette = LocalGamefyPalette.current
-  val isHiddenSecret = ach.isSecret && !isUnlocked
-  val cardBg = if (isUnlocked) {
-    PixelColors.Gold.copy(alpha = 0.12f)
-  } else {
-    palette.surface
-  }
-  val cardBorder = if (isUnlocked) PixelColors.Gold else palette.divider
-
-  Surface(
-    shape = RoundedCornerShape(16.dp),
-    color = cardBg,
-    border = BorderStroke(1.5.dp, cardBorder),
-    modifier = Modifier
-      .fillMaxWidth()
-      .alpha(if (isUnlocked) 1f else 0.72f)
-      .testTag("achievement_item_${ach.id}"),
-  ) {
-    Row(
-      modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-      if (isHiddenSecret) {
-        Box(
-          modifier = Modifier
-            .size(40.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(palette.surfaceSubtle)
-            .border(1.5.dp, palette.divider, RoundedCornerShape(10.dp)),
-          contentAlignment = Alignment.Center,
-        ) {
-          Text(
-            text = "?",
-            fontFamily = PixelFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 20.sp,
-            color = palette.textMuted,
-          )
-        }
-      } else {
-        PixelIcon(icon = ach.icon, size = 38.dp)
-      }
-
-      Column(
-        modifier = Modifier.weight(1f),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-      ) {
-        Row(
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-          Text(
-            text = if (isHiddenSecret) "Tajne osiągnięcie" else ach.title,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = palette.textPrimary,
-          )
-          if (ach.isSecret) {
-            val unlockedGoldTint = if (palette.isDark) PixelColors.Gold else PixelColors.Warning
-            Surface(
-              shape = RoundedCornerShape(6.dp),
-              color = if (isUnlocked) PixelColors.Gold.copy(alpha = 0.25f) else palette.surfaceSubtle,
-            ) {
-              Text(
-                text = if (isUnlocked) "TAJNE ✓" else "TAJNE",
-                fontFamily = PixelFontFamily,
-                fontWeight = FontWeight.Bold,
-                fontSize = 9.sp,
-                color = if (isUnlocked) unlockedGoldTint else palette.textMuted,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-              )
-            }
-          }
-        }
-
-        Text(
-          text = if (isHiddenSecret) {
-            "Sekretne wyzwanie — odkryj podczas korzystania z aplikacji."
-          } else {
-            ach.description
-          },
-          style = MaterialTheme.typography.bodySmall,
-          color = palette.textMuted,
-        )
-
-        val rewardText = if (isHiddenSecret) "Nagroda: ???" else ach.rewardSummary()
-        val rewardColor = if (isUnlocked) {
-          if (palette.isDark) PixelColors.Gold else PixelColors.Warning
-        } else {
-          palette.accent
-        }
-        if (rewardText.isNotBlank()) {
-          Text(
-            text = rewardText,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = rewardColor,
-          )
-        }
-      }
-
-      if (isUnlocked) {
-        PixelIcon(icon = "trophy", size = 24.dp)
       }
     }
   }

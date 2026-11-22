@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,17 +24,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -51,6 +59,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -74,6 +83,7 @@ import com.example.ui.TaskInlineTimerState
 import com.example.ui.theme.BodyFontFamily
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
+import com.example.ui.theme.PixelFontFamily
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
@@ -113,7 +123,8 @@ fun TaskCardItem(
   val difficulty = TaskDifficulty.fromCode(task.difficultyCode)
   val penaltyMode = PenaltyMode.fromCode(task.penaltyModeCode)
 
-  var showCompleteAllDialog by remember { mutableStateOf(false) }
+  var showSkipConfirmDialog by remember { mutableStateOf(false) }
+  var showGiveUpConfirmDialog by remember { mutableStateOf(false) }
   var showLongPressDialog by remember { mutableStateOf(false) }
   var isAnimatingComplete by remember(task.id, task.completedCount, task.startTimestamp) {
     mutableStateOf(false)
@@ -127,6 +138,7 @@ fun TaskCardItem(
     if (isAnimatingComplete) {
       delay(380L)
       onComplete()
+      isAnimatingComplete = false
     }
   }
 
@@ -149,7 +161,7 @@ fun TaskCardItem(
       statusFg = palette.textMuted
     }
     dueRemaining < 0L -> {
-      statusText = "spóźnione ${formatDurationShort(dueRemaining)}"
+      statusText = "Po terminie · ${formatDurationShort(dueRemaining)}"
       statusBg = PixelColors.Red.copy(alpha = 0.16f)
       statusFg = PixelColors.Red
     }
@@ -199,12 +211,7 @@ fun TaskCardItem(
           checked = isAnimatingComplete,
           onClick = {
             if (isAnimatingComplete) return@PixelCheckbox
-            val hasUncheckedSubtasks = subtasks.any { !it.isDone }
-            if (hasUncheckedSubtasks) {
-              showCompleteAllDialog = true
-            } else {
-              isAnimatingComplete = true
-            }
+            isAnimatingComplete = true
           },
           modifier = Modifier.testTag("task_done_${task.id}"),
         )
@@ -213,6 +220,7 @@ fun TaskCardItem(
       Column(
         modifier = Modifier
           .weight(1f)
+          .heightIn(min = 48.dp)
           .clip(RoundedCornerShape(10.dp))
           .combinedClickable(
             onClick = {
@@ -227,6 +235,7 @@ fun TaskCardItem(
           )
           .testTag("task_item_body_${task.id}")
           .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.Center,
       ) {
         Text(
           text = task.name,
@@ -373,24 +382,42 @@ fun TaskCardItem(
         val toggleLabel = if (detailPref == OnboardingDetailPref.SIMPLE) {
           if (subtasksExpanded) "Ukryj podzadania ($doneCount/${subtasks.size})" else "Pokaż podzadania ($doneCount/${subtasks.size})"
         } else {
-          if (subtasksExpanded) "Podzadania ($doneCount/${subtasks.size}) ▴" else "Podzadania ($doneCount/${subtasks.size}) ▾"
+          "Podzadania ($doneCount/${subtasks.size})"
         }
         Surface(
-          shape = RoundedCornerShape(8.dp),
+          shape = RoundedCornerShape(10.dp),
           color = palette.surfaceSubtle,
           modifier = Modifier
-            .padding(start = 34.dp, top = 4.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .clickable { subtasksExpanded = !subtasksExpanded }
+            .fillMaxWidth()
+            .padding(top = 6.dp)
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(
+              role = Role.Button,
+              onClickLabel = if (subtasksExpanded) "Zwiń podzadania" else "Rozwiń podzadania",
+            ) { subtasksExpanded = !subtasksExpanded }
             .testTag("subtask_toggle_${task.id}"),
         ) {
-          Text(
-            text = toggleLabel,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = palette.accent,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-          )
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+          ) {
+            Text(
+              text = toggleLabel,
+              style = MaterialTheme.typography.labelMedium,
+              fontWeight = FontWeight.SemiBold,
+              color = palette.accent,
+            )
+            Icon(
+              imageVector = if (subtasksExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+              contentDescription = if (subtasksExpanded) "Zwiń podzadania" else "Rozwiń podzadania",
+              tint = palette.accent,
+              modifier = Modifier.size(22.dp),
+            )
+          }
         }
       }
 
@@ -398,7 +425,7 @@ fun TaskCardItem(
         Column(
           modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 34.dp, top = 2.dp),
+            .padding(start = 16.dp, top = 4.dp),
           verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
           subtasks.forEach { sub ->
@@ -406,6 +433,7 @@ fun TaskCardItem(
             Row(
               modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 48.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .clickable(enabled = isActive && !isAnimatingComplete) {
                   onToggleSubtask(sub.id)
@@ -422,7 +450,7 @@ fun TaskCardItem(
                   }
                 },
                 boxSize = 20.dp,
-                touchTargetSize = 36.dp,
+                touchTargetSize = 48.dp,
                 modifier = Modifier.testTag("subtask_check_${task.id}_${sub.id}"),
               )
               Text(
@@ -502,14 +530,19 @@ fun TaskCardItem(
             ) {
               Column {
                 Text(
-                  text = if (task.durationMinutes > 0) {
-                    "CZASOMIERZ ZADANIA"
-                  } else {
-                    "CZASOMIERZ ZADANIA (DOM. 25 MIN)"
-                  },
-                  style = MaterialTheme.typography.labelSmall,
-                  color = palette.textMuted,
+                  text = "Timer zadania",
+                  fontFamily = PixelFontFamily,
+                  fontWeight = FontWeight.Bold,
+                  fontSize = 14.sp,
+                  color = palette.textPrimary,
                 )
+                if (task.durationMinutes <= 0) {
+                  Text(
+                    text = "Domyślnie 25 min",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.textMuted,
+                  )
+                }
                 Text(
                   text = String.format("%02d:%02d", mm, ss),
                   fontFamily = BodyFontFamily,
@@ -521,14 +554,14 @@ fun TaskCardItem(
               }
               Row(verticalAlignment = Alignment.CenterVertically) {
                 PixelButton(
-                  text = if (isThisTask && inlineTimer.isRunning) "Pauza" else "Start",
+                  text = if (isThisTask && inlineTimer.isRunning) "Zatrzymaj" else "Start",
                   compact = true,
                   modifier = Modifier.testTag("task_timer_start_${task.id}"),
                   leadingIcon = {
                     Icon(
                       imageVector = if (isThisTask && inlineTimer.isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
                       contentDescription = null,
-                      tint = Color.White,
+                      tint = palette.onAccent,
                       modifier = Modifier.size(16.dp),
                     )
                   },
@@ -537,11 +570,11 @@ fun TaskCardItem(
                 Spacer(modifier = Modifier.width(6.dp))
                 IconButton(
                   onClick = onResetTaskTimer,
-                  modifier = Modifier.size(40.dp),
+                  modifier = Modifier.size(48.dp),
                 ) {
                   Icon(
                     imageVector = Icons.Default.Stop,
-                    contentDescription = "Resetuj czasomierz zadania",
+                    contentDescription = "Zresetuj",
                     tint = palette.textMuted,
                   )
                 }
@@ -549,87 +582,251 @@ fun TaskCardItem(
             }
           }
 
-          if (penaltyMode == PenaltyMode.ON_SKIP_ONLY) {
-            val range = if (task.penaltyMaxCoins > task.penaltyMinCoins) {
-              "${task.penaltyMinCoins}–${task.penaltyMaxCoins}"
-            } else {
-              "${task.penaltyMinCoins}"
-            }
-            Text(
-              text = "Kara za pominięcie: $range monet",
-              style = MaterialTheme.typography.bodySmall,
-              color = PixelColors.Red,
+          val hasSkipPenalty =
+            penaltyMode == PenaltyMode.ON_SKIP_ONLY && (task.penaltyMinCoins > 0 || task.penaltyMaxCoins > 0)
+          val skipPenaltyRangeText = if (task.penaltyMaxCoins > task.penaltyMinCoins) {
+            "${task.penaltyMinCoins}–${task.penaltyMaxCoins}"
+          } else {
+            "${task.penaltyMinCoins}"
+          }
+          val skipConsequenceLabel = if (hasSkipPenalty) {
+            "Pomiń · kara −$skipPenaltyRangeText"
+          } else {
+            "Pomiń · bez kary"
+          }
+
+          val (giveUpMin, giveUpMax) = resolveGiveUpPenaltyRange(
+            coinReward = task.coinReward,
+            difficultyCode = task.difficultyCode,
+            penaltyModeCode = task.penaltyModeCode,
+            penaltyMinCoins = task.penaltyMinCoins,
+            penaltyMaxCoins = task.penaltyMaxCoins,
+          )
+          val giveUpRangeText = if (giveUpMax > giveUpMin) "$giveUpMin–$giveUpMax" else "$giveUpMin"
+          val giveUpLabel = "Poddaj się · kara −$giveUpRangeText"
+          val giveUpEffectHint = if (category == TaskCategory.SIDEQUEST) {
+            "Jednorazowe: zniknie z listy do zrobienia"
+          } else {
+            "Cykliczne: usuwa spóźnienie i odlicza czas od nowa"
+          }
+
+          if (isActive) {
+            // 1. Główna akcja: wypełniony przycisk "Wykonane" (bez dialogu — z Cofnij na snackbarze)
+            PixelButton(
+              text = "Wykonane",
+              containerColor = PixelColors.Green,
+              contentColor = Color.White,
+              modifier = Modifier
+                .fillMaxWidth()
+                .testTag("complete_task_button_${task.id}"),
+              leadingIcon = {
+                Icon(
+                  imageVector = Icons.Default.Check,
+                  contentDescription = null,
+                  tint = Color.White,
+                  modifier = Modifier.size(18.dp),
+                )
+              },
+              onClick = {
+                if (isAnimatingComplete) return@PixelButton
+                isAnimatingComplete = true
+              },
             )
           }
 
+          // 2. Akcje drugorzędne: obrysowany "Pomiń" (z opisem skutku) + obrysowany "Edytuj"
           Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
           ) {
-            PixelButton(
-              text = "Edytuj",
-              compact = true,
-              containerColor = palette.surface,
-              contentColor = palette.textPrimary,
-              modifier = Modifier
-                .weight(1f)
-                .testTag("edit_task_${task.id}"),
-              leadingIcon = {
-                Icon(
-                  imageVector = Icons.Default.Edit,
-                  contentDescription = null,
-                  tint = palette.textPrimary,
-                  modifier = Modifier.size(16.dp),
-                )
-              },
-              onClick = onEdit,
-            )
             if (isActive) {
-              PixelButton(
-                text = "Pomiń",
-                compact = true,
-                containerColor = palette.surfaceSubtle,
-                contentColor = palette.textPrimary,
+              OutlinedButton(
+                onClick = {
+                  if (hasSkipPenalty) {
+                    showSkipConfirmDialog = true
+                  } else {
+                    onSkip()
+                  }
+                },
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.5.dp, palette.outline.copy(alpha = 0.65f)),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                 modifier = Modifier
                   .weight(1f)
+                  .heightIn(min = 48.dp)
                   .testTag("skip_task_${task.id}"),
-                leadingIcon = {
-                  Icon(
-                    imageVector = Icons.Default.SkipNext,
-                    contentDescription = null,
-                    tint = palette.textPrimary,
-                    modifier = Modifier.size(16.dp),
-                  )
-                },
-                onClick = onSkip,
+              ) {
+                Icon(
+                  imageVector = Icons.Default.SkipNext,
+                  contentDescription = null,
+                  tint = palette.textPrimary,
+                  modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                  text = skipConsequenceLabel,
+                  style = MaterialTheme.typography.labelLarge,
+                  fontWeight = FontWeight.SemiBold,
+                  color = palette.textPrimary,
+                  maxLines = 1,
+                  overflow = TextOverflow.Ellipsis,
+                )
+              }
+            }
+
+            OutlinedButton(
+              onClick = onEdit,
+              shape = RoundedCornerShape(10.dp),
+              border = BorderStroke(1.5.dp, palette.divider),
+              contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+              modifier = Modifier
+                .then(if (isActive) Modifier else Modifier.weight(1f))
+                .heightIn(min = 48.dp)
+                .testTag("edit_task_${task.id}"),
+            ) {
+              Icon(
+                imageVector = Icons.Default.Edit,
+                contentDescription = null,
+                tint = palette.textPrimary,
+                modifier = Modifier.size(16.dp),
               )
+              Spacer(modifier = Modifier.width(6.dp))
+              Text(
+                text = "Edytuj",
+                style = MaterialTheme.typography.labelLarge,
+                color = palette.textPrimary,
+                maxLines = 1,
+              )
+            }
+
+          }
+
+          // 3. Oddzielona strefa ostrzegawcza (tekstowy przycisk "Poddaj się", nigdy obok "Wykonane")
+          if (isActive) {
+            HorizontalDivider(
+              modifier = Modifier.padding(top = 4.dp),
+              color = palette.divider,
+            )
+            Column(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalAlignment = Alignment.Start,
+            ) {
+              TextButton(
+                onClick = { showGiveUpConfirmDialog = true },
+                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp),
+                modifier = Modifier
+                  .heightIn(min = 48.dp)
+                  .testTag("give_up_task_${task.id}"),
+              ) {
+                Icon(
+                  imageVector = Icons.Default.Flag,
+                  contentDescription = null,
+                  tint = PixelColors.Red,
+                  modifier = Modifier.size(16.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Column {
+                  Text(
+                    text = giveUpLabel,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = PixelColors.Red,
+                  )
+                  Text(
+                    text = giveUpEffectHint,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textMuted,
+                  )
+                }
+              }
             }
           }
         }
       }
     }
-  }
+    }
   }
 
-  if (showCompleteAllDialog) {
+  if (showSkipConfirmDialog) {
+    val skipRangeText = if (task.penaltyMaxCoins > task.penaltyMinCoins) {
+      "${task.penaltyMinCoins}–${task.penaltyMaxCoins}"
+    } else {
+      "${task.penaltyMinCoins}"
+    }
+    val skipEffectDesc = if (category == TaskCategory.SIDEQUEST) {
+      "Zadanie jednorazowe zniknie z listy do zrobienia."
+    } else {
+      "Zadanie cykliczne przejdzie do kolejnego cyklu."
+    }
+
     AlertDialog(
-      onDismissRequest = { showCompleteAllDialog = false },
-      title = { Text("Zakończyć całe zadanie?") },
+      onDismissRequest = { showSkipConfirmDialog = false },
+      title = { Text("Pominąć zadanie?") },
       text = {
-        Text("Chcesz zaznaczyć wszystkie podrzędne zadania jako wykonane?")
+        Text("„${task.name}”\n\nKara za pominięcie: −$skipRangeText monet.\n$skipEffectDesc")
       },
       confirmButton = {
-        TextButton(
+        Button(
+          colors = ButtonDefaults.buttonColors(
+            containerColor = PixelColors.Warning,
+            contentColor = Color.White,
+          ),
+          modifier = Modifier.testTag("confirm_skip_task_${task.id}"),
           onClick = {
-            showCompleteAllDialog = false
-            isAnimatingComplete = true
+            showSkipConfirmDialog = false
+            onSkip()
           },
         ) {
-          Text("Tak, zaznacz wszystkie")
+          Text("Pomiń")
         }
       },
       dismissButton = {
-        TextButton(onClick = { showCompleteAllDialog = false }) {
+        TextButton(onClick = { showSkipConfirmDialog = false }) {
+          Text("Anuluj")
+        }
+      },
+    )
+  }
+
+  if (showGiveUpConfirmDialog) {
+    val (penMin, penMax) = resolveGiveUpPenaltyRange(
+      coinReward = task.coinReward,
+      difficultyCode = task.difficultyCode,
+      penaltyModeCode = task.penaltyModeCode,
+      penaltyMinCoins = task.penaltyMinCoins,
+      penaltyMaxCoins = task.penaltyMaxCoins,
+    )
+    val penaltyRangeText = if (penMax > penMin) "$penMin–$penMax" else "$penMin"
+    val giveUpEffectDesc = if (category == TaskCategory.SIDEQUEST) {
+      "Zadanie jednorazowe zniknie z listy do zrobienia."
+    } else {
+      "Zadanie cykliczne przestanie być po terminie, a czas do terminu zacznie liczyć się od nowa."
+    }
+
+    AlertDialog(
+      onDismissRequest = { showGiveUpConfirmDialog = false },
+      title = { Text("Poddać zadanie?") },
+      text = {
+        Text("„${task.name}”\n\nKara za poddanie: −$penaltyRangeText monet.\n$giveUpEffectDesc")
+      },
+      confirmButton = {
+        Button(
+          colors = ButtonDefaults.buttonColors(
+            containerColor = PixelColors.Red,
+            contentColor = Color.White,
+          ),
+          modifier = Modifier.testTag("confirm_give_up_task_${task.id}"),
+          onClick = {
+            showGiveUpConfirmDialog = false
+            onGiveUp()
+          },
+        ) {
+          Text("Poddaj się")
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { showGiveUpConfirmDialog = false }) {
           Text("Anuluj")
         }
       },
@@ -646,9 +843,9 @@ fun TaskCardItem(
     )
     val penaltyRangeText = if (penMax > penMin) "$penMin–$penMax" else "$penMin"
     val giveUpSubtitle = if (category == TaskCategory.SIDEQUEST) {
-      "Kara: −$penaltyRangeText 🪙 · Zadanie jednorazowe zniknie z listy do zrobienia."
+      "Jednorazowe: zniknie z listy do zrobienia."
     } else {
-      "Kara: −$penaltyRangeText 🪙 · Zadanie przestanie być spóźnione, a czas do terminu zacznie liczyć się od nowa."
+      "Cykliczne: przestanie być po terminie, a czas do terminu zacznie liczyć się od nowa."
     }
 
     AlertDialog(
@@ -663,64 +860,57 @@ fun TaskCardItem(
         )
       },
       text = {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-          Surface(
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+          OutlinedButton(
+            onClick = {
+              showLongPressDialog = false
+              onEdit()
+            },
             shape = RoundedCornerShape(12.dp),
-            color = palette.surfaceSubtle,
             border = BorderStroke(1.5.dp, palette.divider),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
             modifier = Modifier
               .fillMaxWidth()
               .heightIn(min = 48.dp)
-              .clip(RoundedCornerShape(12.dp))
-              .clickable {
-                showLongPressDialog = false
-                onEdit()
-              }
               .testTag("longpress_edit_${task.id}"),
           ) {
-            Row(
-              modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-              Icon(
-                imageVector = Icons.Default.Edit,
-                contentDescription = "Edytuj zadanie",
-                tint = palette.textPrimary,
-                modifier = Modifier.size(20.dp),
-              )
-              Text(
-                text = "Edytuj",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                color = palette.textPrimary,
-              )
-            }
+            Icon(
+              imageVector = Icons.Default.Edit,
+              contentDescription = null,
+              tint = palette.textPrimary,
+              modifier = Modifier.size(18.dp),
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+              text = "Edytuj",
+              style = MaterialTheme.typography.bodyLarge,
+              fontWeight = FontWeight.Bold,
+              color = palette.textPrimary,
+            )
           }
 
           if (isActive) {
-            Surface(
-              shape = RoundedCornerShape(12.dp),
-              color = PixelColors.Red.copy(alpha = 0.12f),
-              border = BorderStroke(1.5.dp, PixelColors.Red),
+            HorizontalDivider(color = palette.divider)
+
+            TextButton(
+              onClick = {
+                showLongPressDialog = false
+                showGiveUpConfirmDialog = true
+              },
+              contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
               modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .clickable {
-                  showLongPressDialog = false
-                  onGiveUp()
-                }
                 .testTag("longpress_give_up_${task.id}"),
             ) {
               Row(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
               ) {
                 Icon(
                   imageVector = Icons.Default.Flag,
-                  contentDescription = "Poddaj się",
+                  contentDescription = null,
                   tint = PixelColors.Red,
                   modifier = Modifier.size(20.dp),
                 )
@@ -729,7 +919,7 @@ fun TaskCardItem(
                   verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                   Text(
-                    text = "Poddaj się",
+                    text = "Poddaj się · kara −$penaltyRangeText",
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Bold,
                     color = PixelColors.Red,

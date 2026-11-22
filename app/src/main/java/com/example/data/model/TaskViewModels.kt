@@ -13,7 +13,7 @@ enum class TaskViewMode(val code: String, val label: String) {
   WEEK("week", "Tydzień"),
   TWO_WEEKS("two_weeks", "2 tygodnie"),
   DIFFICULTY("difficulty", "Trudność zadania"),
-  REWARD("reward", "Nagroda"),
+  REWARD("reward", "Zdobycz"),
 }
 
 enum class TaskSortDirection {
@@ -38,14 +38,14 @@ fun sortLabelFor(viewMode: TaskViewMode, direction: TaskSortDirection): String =
     "Od ekstremalnie trudnego"
   }
   TaskViewMode.REWARD -> if (direction == TaskSortDirection.DESCENDING) {
-    "Nagroda: malejąco"
+    "Zdobycz: malejąco"
   } else {
-    "Nagroda: rosnąco"
+    "Zdobycz: rosnąco"
   }
   TaskViewMode.CATEGORY -> if (direction == TaskSortDirection.ASCENDING) {
     "Kategorie + czas rosnąco"
   } else {
-    "Kategorie odwr. + czas malejąco"
+    "Kategorie odwrotnie + czas malejąco"
   }
   TaskViewMode.CALENDAR,
   TaskViewMode.THREE_DAYS,

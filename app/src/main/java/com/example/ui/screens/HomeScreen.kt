@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -46,19 +48,27 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.data.local.TaskEntity
+import com.example.data.local.parseStringCsv
 import com.example.data.model.OnboardingDetailPref
+import com.example.data.model.RANDOM_SIDE_QUEST_DAILY_LIMIT
+import com.example.data.model.localCalendarDayKey
 import com.example.ui.GamefyUiState
 import com.example.ui.MainTimerMode
 import com.example.ui.MainTimerState
+import com.example.ui.PomodoroPhase
 import com.example.ui.TaskInlineTimerState
 import com.example.ui.components.PixelButton
 import com.example.ui.components.PixelCard
+import com.example.ui.components.PixelEmptyStateCard
 import com.example.ui.components.PixelIcon
+import com.example.ui.components.PixelSectionHeader
 import com.example.ui.components.TaskCardItem
 import com.example.ui.theme.BodyFontFamily
 import com.example.ui.theme.LocalGamefyPalette
@@ -83,6 +93,9 @@ fun HomeScreen(
   onEditTask: (Long) -> Unit,
   onToggleTaskTimer: (Long, Int) -> Unit,
   onResetTaskTimer: (Long, Int) -> Unit,
+  onCreateNewTask: () -> Unit = {},
+  onOpenReadyTasksDb: () -> Unit = {},
+  onOpenRandomQuest: () -> Unit = {},
   modifier: Modifier = Modifier,
 ) {
   val palette = LocalGamefyPalette.current
@@ -94,6 +107,23 @@ fun HomeScreen(
       .filter { it.isActive && it.startTimestamp <= now }
       .sortedBy { it.dueTimestamp ?: Long.MAX_VALUE }
       .take(8)
+  }
+
+  val acceptedSideQuestsToday = remember(
+    uiState.profile.rsqBoardDayKey,
+    uiState.profile.rsqAcceptedIdsCsv,
+    uiState.profile.rsqAcceptedCountToday,
+    now,
+  ) {
+    val todayKey = localCalendarDayKey(now)
+    if (uiState.profile.rsqBoardDayKey == todayKey) {
+      maxOf(
+        uiState.profile.rsqAcceptedCountToday,
+        parseStringCsv(uiState.profile.rsqAcceptedIdsCsv).size,
+      ).coerceIn(0, RANDOM_SIDE_QUEST_DAILY_LIMIT)
+    } else {
+      0
+    }
   }
 
   Box(
@@ -120,38 +150,93 @@ fun HomeScreen(
       }
 
       item {
-        Text(
-          text = "NAJBLIŻSZE TERMINY",
-          style = MaterialTheme.typography.titleSmall,
-          color = palette.textMuted,
+        val bannerBg = if (palette.isHighContrast) {
+          palette.surface
+        } else if (palette.isDark) {
+          PixelColors.AmberDarkBg
+        } else {
+          PixelColors.Gold.copy(alpha = 0.22f)
+        }
+        val bannerBorder = if (palette.isHighContrast) palette.outline else PixelColors.Amber
+        val remainingToday = (RANDOM_SIDE_QUEST_DAILY_LIMIT - acceptedSideQuestsToday).coerceAtLeast(0)
+        val subtitleText = if (remainingToday > 0) {
+          "Nowe zadania poboczne · Przyjęte dziś: $acceptedSideQuestsToday/$RANDOM_SIDE_QUEST_DAILY_LIMIT"
+        } else {
+          "Przyjęte dziś: $acceptedSideQuestsToday/$RANDOM_SIDE_QUEST_DAILY_LIMIT · nowe jutro"
+        }
+
+        Surface(
+          shape = RoundedCornerShape(16.dp),
+          color = bannerBg,
+          border = BorderStroke(1.5.dp, bannerBorder),
+          modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(
+              role = Role.Button,
+              onClickLabel = "Otwórz Tablicę Przygód",
+              onClick = onOpenRandomQuest,
+            )
+            .testTag("home_adventure_board_card"),
+        ) {
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+          ) {
+            PixelIcon(icon = "sword", size = 26.dp)
+            Column(
+              modifier = Modifier.weight(1f),
+              verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+              Text(
+                text = "Tablica Przygód",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = palette.textPrimary,
+              )
+              Text(
+                text = subtitleText,
+                style = MaterialTheme.typography.bodySmall,
+                fontSize = 12.5.sp,
+                color = palette.textMuted,
+              )
+            }
+            Icon(
+              imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+              contentDescription = null,
+              tint = palette.textPrimary,
+              modifier = Modifier.size(22.dp),
+            )
+          }
+        }
+      }
+
+      item {
+        PixelSectionHeader(
+          title = "Najbliższe terminy",
+          badgeText = if (urgentTasks.isNotEmpty()) "${urgentTasks.size}" else null,
           modifier = Modifier.padding(top = 4.dp, start = 4.dp),
         )
       }
 
       if (urgentTasks.isEmpty()) {
         item {
-          PixelCard {
-            Column(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp),
-              horizontalAlignment = Alignment.CenterHorizontally,
-              verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-              PixelIcon(icon = "trophy", size = 44.dp)
-              Text(
-                text = "Brak aktywnych zadań!",
-                style = MaterialTheme.typography.titleMedium,
-                color = palette.textPrimary,
-              )
-              Text(
-                text = "Wszystko zrobione albo zaplanowane na kolejne dni.",
-                style = MaterialTheme.typography.bodySmall,
-                color = palette.textMuted,
-                textAlign = TextAlign.Center,
-              )
-            }
-          }
+          PixelEmptyStateCard(
+            illustrationRes = R.drawable.img_empty_tasks,
+            illustrationContentDescription = "Ilustracja pustej tablicy zadań ze zwojem",
+            title = "Brak aktywnych zadań!",
+            subtitle = "Wszystko zrobione albo zaplanowane na kolejne dni. Dodaj nowe zadanie lub wybierz gotowe z bazy.",
+            primaryActionLabel = "Dodaj zadanie",
+            onPrimaryAction = onCreateNewTask,
+            primaryActionTestTag = "home_empty_add_task_button",
+            secondaryActionLabel = "Przeglądaj bazę zadań",
+            onSecondaryAction = onOpenReadyTasksDb,
+            secondaryActionTestTag = "home_empty_browse_db_button",
+          )
         }
       } else {
         item {
@@ -240,10 +325,10 @@ private fun MainTimerCard(
             contentAlignment = Alignment.Center,
           ) {
             Text(
-              text = mode.label.uppercase(),
+              text = mode.label,
               fontFamily = PixelFontFamily,
               fontWeight = FontWeight.Bold,
-              fontSize = 12.sp,
+              fontSize = 14.sp,
               color = if (selected) palette.accent else Color.White,
             )
           }
@@ -251,20 +336,39 @@ private fun MainTimerCard(
       }
 
       if (timerState.mode == MainTimerMode.POMODORO) {
-        // Standard classic Pomodoro cycle: Praca (25m) -> Krótka przerwa (5m) -> Długa przerwa (15m)
-        Surface(
-          shape = RoundedCornerShape(8.dp),
-          color = Color.White.copy(alpha = 0.22f),
+        // Standard classic Pomodoro cycle: Pomodoro (25m) -> Krótka przerwa (5m) -> Długa przerwa (15m)
+        Row(
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+          verticalAlignment = Alignment.CenterVertically,
         ) {
-          Text(
-            text = "${timerState.pomodoroPhase.label.uppercase()} · SESJA #${timerState.completedFocusCount + 1}",
-            fontFamily = BodyFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
-            letterSpacing = 0.6.sp,
-            color = Color.White,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-          )
+          val isFocusPhase = timerState.pomodoroPhase == PomodoroPhase.FOCUS
+          Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = Color.White.copy(alpha = 0.22f),
+          ) {
+            Text(
+              text = if (isFocusPhase) "POMODORO" else timerState.pomodoroPhase.label,
+              fontFamily = BodyFontFamily,
+              fontWeight = FontWeight.Bold,
+              fontSize = 11.sp,
+              letterSpacing = if (isFocusPhase) 0.8.sp else 0.sp,
+              color = Color.White,
+              modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+          }
+          Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = Color.White.copy(alpha = 0.16f),
+          ) {
+            Text(
+              text = "Sesja ${timerState.completedFocusCount + 1}",
+              fontFamily = BodyFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 11.sp,
+              color = Color.White,
+              modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            )
+          }
         }
       } else {
         // Timer mode: preset chips (15 / 25 / 45 / 60 min) + HH:MM:SS custom steppers
@@ -400,25 +504,38 @@ private fun MainTimerCard(
             ),
             color = Color.White,
           )
-          Text(
-            text = if (timerState.isRunning) "TRWA ODLICZANIE" else "GOTOWY",
-            fontFamily = BodyFontFamily,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 11.sp,
-            letterSpacing = 1.sp,
-            color = Color.White.copy(alpha = 0.88f),
-          )
+          val isPaused = !timerState.isRunning &&
+            timerState.remainingSeconds in 1 until timerState.totalSeconds
+          val statusChipText = when {
+            timerState.isRunning -> "Odliczanie"
+            isPaused -> "PAUZA"
+            else -> "Gotowy"
+          }
+          Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = Color.White.copy(alpha = 0.18f),
+          ) {
+            Text(
+              text = statusChipText,
+              fontFamily = BodyFontFamily,
+              fontWeight = FontWeight.SemiBold,
+              fontSize = 11.sp,
+              letterSpacing = if (isPaused) 0.8.sp else 0.sp,
+              color = Color.White,
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+          }
         }
       }
 
-      // Controls: Play/Pause, Skip, Square Restart
+      // Controls: Play/Pause, Skip, Square Reset
       Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
         verticalAlignment = Alignment.CenterVertically,
       ) {
         PixelButton(
-          text = if (timerState.isRunning) "Pauza" else "Start",
+          text = if (timerState.isRunning) "Zatrzymaj" else "Start",
           containerColor = Color.White,
           contentColor = palette.accent,
           modifier = Modifier
@@ -436,14 +553,14 @@ private fun MainTimerCard(
         )
 
         PixelButton(
-          text = "Pomiń",
+          text = "Pomiń fazę",
           containerColor = PixelColors.Gold,
           contentColor = palette.outline,
           modifier = Modifier.testTag("main_timer_skip"),
           leadingIcon = {
             Icon(
               imageVector = Icons.Default.SkipNext,
-              contentDescription = "Pomiń fazę",
+              contentDescription = null,
               tint = palette.outline,
               modifier = Modifier.size(20.dp),
             )
@@ -463,7 +580,7 @@ private fun MainTimerCard(
           Box(contentAlignment = Alignment.Center) {
             Icon(
               imageVector = Icons.Default.Stop,
-              contentDescription = "Restartuj timer",
+              contentDescription = "Zresetuj",
               tint = Color.White,
               modifier = Modifier.size(26.dp),
             )

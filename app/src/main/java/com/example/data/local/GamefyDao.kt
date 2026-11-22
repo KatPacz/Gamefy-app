@@ -113,6 +113,9 @@ interface GamefyDao {
   @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertActivityEvent(event: ActivityEventEntity): Long
 
+  @Query("DELETE FROM activity_events WHERE id IN (:ids)")
+  suspend fun deleteActivityEventsByIds(ids: List<Long>)
+
   @Query("DELETE FROM activity_events")
   suspend fun clearActivityEvents()
 
@@ -165,13 +168,46 @@ interface GamefyDao {
     attributesToUpdate: List<AttributeEntity>,
     updatedProfile: PlayerProfileEntity,
     achievementEvents: List<ActivityEventEntity>,
-  ) {
+  ): List<Long> {
     if (shopItemToUpdate != null) updateShopItem(shopItemToUpdate)
     if (taskIdToDelete != null) deleteTaskById(taskIdToDelete)
     if (taskToUpdate != null) updateTask(taskToUpdate)
-    insertActivityEvent(activityEvent)
+    val insertedIds = mutableListOf<Long>()
+    insertedIds.add(insertActivityEvent(activityEvent))
     attributesToUpdate.forEach { updateAttribute(it) }
     upsertProfile(updatedProfile)
-    achievementEvents.forEach { insertActivityEvent(it) }
+    achievementEvents.forEach { insertedIds.add(insertActivityEvent(it)) }
+    return insertedIds
+  }
+
+  @Transaction
+  suspend fun applyTaskSkipOrGiveUpAtomically(
+    taskIdToDelete: Long?,
+    taskToUpdate: TaskEntity?,
+    updatedProfile: PlayerProfileEntity?,
+    activityEvent: ActivityEventEntity,
+  ): Long {
+    if (updatedProfile != null) upsertProfile(updatedProfile)
+    val eventId = insertActivityEvent(activityEvent)
+    if (taskIdToDelete != null) deleteTaskById(taskIdToDelete)
+    if (taskToUpdate != null) updateTask(taskToUpdate)
+    return eventId
+  }
+
+  @Transaction
+  suspend fun restoreTaskActionSnapshotAtomically(
+    previousTask: TaskEntity,
+    previousProfile: PlayerProfileEntity?,
+    previousAttributes: List<AttributeEntity>,
+    previousShopItem: ShopItemEntity?,
+    insertedActivityEventIds: List<Long>,
+  ) {
+    insertTask(previousTask)
+    if (previousProfile != null) upsertProfile(previousProfile)
+    previousAttributes.forEach { updateAttribute(it) }
+    if (previousShopItem != null) updateShopItem(previousShopItem)
+    if (insertedActivityEventIds.isNotEmpty()) {
+      deleteActivityEventsByIds(insertedActivityEventIds)
+    }
   }
 }

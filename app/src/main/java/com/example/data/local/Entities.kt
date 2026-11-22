@@ -47,9 +47,29 @@ data class PlayerProfileEntity(
   val rsqAcceptedIdsCsv: String = "",
   val rsqAcceptedCountToday: Int = 0,
   val lastBackupReminderTimestamp: Long = 0L,
+  val lastBackupExportTimestamp: Long = 0L,
+  val backupReminderSnoozeUntilTimestamp: Long = 0L,
   val fontSizeCode: String = "default",
   val fontFamilyCode: String = "default",
   val wordSpacingCode: String = "standard",
+  val streakFreezeUsedWeekKey: Int = 0,
+  val comebackAfterBreak: Boolean = false,
+  val currentOnTimeStreak: Int = 0,
+  val bestOnTimeStreak: Int = 0,
+  val onTimeTasksDone: Int = 0,
+  val totalFocusMinutes: Int = 0,
+  val fullPomodoroCycles: Int = 0,
+  val spentAllGems: Boolean = false,
+  val wellEarnedRewardBought: Boolean = false,
+  val sideQuestsCompleted: Int = 0,
+  val fullAdventureBoardDay: Boolean = false,
+  val subtasksCompletedCount: Int = 0,
+  val orgItemsCreated: Int = 0,
+  val bulkUpdatesDone: Int = 0,
+  val backupMonthsCsv: String = "",
+  val completedLastMinute: Boolean = false,
+  val completedNoLettersTask: Boolean = false,
+  val completedSmallTask: Boolean = false,
 )
 
 @Entity(tableName = "attributes")
@@ -96,7 +116,7 @@ fun defaultColorHexForFolder(name: String, id: Long = 0L): String {
     "samopoczucie" -> "#14B8A6"
     "hobby" -> "#EC4899"
     "zwierzęta", "zwierzeta" -> "#F97316"
-    "side questy", "sidequesty" -> "#6366F1"
+    "poboczne", "side questy", "sidequesty" -> "#6366F1"
     else -> {
       val seed = if (id > 0L) id.toInt() else name.trim().lowercase().hashCode()
       val idx = Math.floorMod(seed, DEFAULT_FOLDER_COLOR_PALETTE.size)

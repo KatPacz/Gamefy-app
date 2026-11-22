@@ -16,6 +16,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -35,10 +37,13 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -77,6 +82,7 @@ import com.example.ui.components.AchievementPillBanner
 import com.example.ui.components.PixelIcon
 import com.example.ui.components.TopHudHeader
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.example.ui.screens.ChestScreen
 import com.example.ui.screens.HomeScreen
@@ -89,6 +95,7 @@ import com.example.ui.screens.TaskEditorScreen
 import com.example.ui.screens.TasksScreen
 import com.example.ui.theme.GamefyTheme
 import com.example.ui.theme.LocalGamefyPalette
+import com.example.ui.theme.PixelColors
 import com.example.ui.theme.PixelFontFamily
 
 private const val ROUTE_START = "start"
@@ -111,7 +118,7 @@ private val NAV_TABS = listOf(
   NavTab(ROUTE_TASKS, "check", "Zadania"),
   NavTab(ROUTE_SHOP, "bag", "Sklep"),
   NavTab(ROUTE_CHEST, "chest", "Skrzynia"),
-  NavTab(ROUTE_PROFILE, "trophy", "Profil"),
+  NavTab(ROUTE_PROFILE, "hero", "Profil"),
 )
 
 class MainActivity : ComponentActivity() {
@@ -152,6 +159,7 @@ fun GamefyRootScreen(
   val achievementQueue = remember { mutableStateListOf<AchievementDefinition>() }
   val currentAchievementBanner = achievementQueue.firstOrNull()
   var scrollToAchievementsNonce by remember { mutableIntStateOf(0) }
+  var scrollToNotificationsNonce by remember { mutableIntStateOf(0) }
   var openLibraryNonce by remember { mutableIntStateOf(0) }
   var pendingOpenTasksAfterOnboarding by remember { mutableStateOf(false) }
   var showExitTimerDialog by remember { mutableStateOf(false) }
@@ -208,9 +216,36 @@ fun GamefyRootScreen(
   }
 
   LaunchedEffect(Unit) {
-    viewModel.toastEvents.collect { msg ->
+    viewModel.snackbarEvents.collectLatest { event ->
       snackbarHostState.currentSnackbarData?.dismiss()
-      snackbarHostState.showSnackbar(msg)
+      val customDurationMs = event.durationMillis
+      if (customDurationMs != null) {
+        val autoDismissJob = launch {
+          delay(customDurationMs)
+          snackbarHostState.currentSnackbarData?.dismiss()
+        }
+        try {
+          val result = snackbarHostState.showSnackbar(
+            message = event.message,
+            actionLabel = event.actionLabel,
+            duration = SnackbarDuration.Indefinite,
+          )
+          if (result == SnackbarResult.ActionPerformed && event.undoSnapshot != null) {
+            if (event.unlockedAchievementIdsToRevert.isNotEmpty()) {
+              achievementQueue.removeAll { it.id in event.unlockedAchievementIdsToRevert }
+            }
+            viewModel.undoTaskAction(event.undoSnapshot)
+          }
+        } finally {
+          autoDismissJob.cancel()
+        }
+      } else {
+        snackbarHostState.showSnackbar(
+          message = event.message,
+          actionLabel = event.actionLabel,
+          duration = SnackbarDuration.Short,
+        )
+      }
     }
   }
 
@@ -322,10 +357,18 @@ fun GamefyRootScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = {
           SnackbarHost(hostState = snackbarHostState) { data ->
+            val snackbarBg = if (palette.isDark) palette.surfaceSubtle else palette.outline
+            val snackbarFg = if (palette.isDark) palette.textPrimary else Color.White
+            val snackbarActionColor = if (palette.isHighContrast && palette.isDark) {
+              palette.accent
+            } else {
+              PixelColors.Gold
+            }
             Snackbar(
               snackbarData = data,
-              containerColor = palette.outline,
-              contentColor = Color.White,
+              containerColor = snackbarBg,
+              contentColor = snackbarFg,
+              actionColor = snackbarActionColor,
             )
           }
         },
@@ -360,19 +403,27 @@ fun GamefyRootScreen(
                       }
                     }
                   },
-                  icon = { PixelIcon(icon = tab.pixelIcon, size = 28.dp) },
+                  icon = {
+                    PixelIcon(
+                      icon = tab.pixelIcon,
+                      size = 26.dp,
+                      monochromeTint = if (selected) null else palette.textMuted,
+                    )
+                  },
                   label = {
                     Text(
                       text = tab.label,
                       fontFamily = PixelFontFamily,
-                      fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                      fontSize = 11.sp,
+                      fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                      fontSize = 12.sp,
+                      maxLines = 1,
                     )
                   },
                   colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = palette.accent,
                     selectedTextColor = palette.accent,
-                    indicatorColor = palette.accent.copy(alpha = 0.16f),
+                    indicatorColor = palette.accent.copy(alpha = 0.18f),
+                    unselectedIconColor = palette.textMuted,
                     unselectedTextColor = palette.textMuted,
                   ),
                   modifier = Modifier.testTag("nav_${tab.route}"),
@@ -407,19 +458,27 @@ fun GamefyRootScreen(
                       }
                     }
                   },
-                  icon = { PixelIcon(icon = tab.pixelIcon, size = 28.dp) },
+                  icon = {
+                    PixelIcon(
+                      icon = tab.pixelIcon,
+                      size = 26.dp,
+                      monochromeTint = if (selected) null else palette.textMuted,
+                    )
+                  },
                   label = {
                     Text(
                       text = tab.label,
                       fontFamily = PixelFontFamily,
-                      fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                      fontSize = 11.sp,
+                      fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                      fontSize = 12.sp,
+                      maxLines = 1,
                     )
                   },
                   colors = NavigationRailItemDefaults.colors(
                     selectedIconColor = palette.accent,
                     selectedTextColor = palette.accent,
-                    indicatorColor = palette.accent.copy(alpha = 0.16f),
+                    indicatorColor = palette.accent.copy(alpha = 0.18f),
+                    unselectedIconColor = palette.textMuted,
                     unselectedTextColor = palette.textMuted,
                   ),
                   modifier = Modifier.testTag("nav_${tab.route}"),
@@ -453,6 +512,13 @@ fun GamefyRootScreen(
                 onEditTask = { taskId -> navController.navigate("task_edit/$taskId") },
                 onToggleTaskTimer = viewModel::toggleTaskTimer,
                 onResetTaskTimer = viewModel::resetTaskTimer,
+                onCreateNewTask = { navController.navigate("task_edit/0") },
+                onOpenReadyTasksDb = {
+                  navController.navigate(ROUTE_READY_TASKS) { launchSingleTop = true }
+                },
+                onOpenRandomQuest = {
+                  navController.navigate(ROUTE_ADVENTURE_BOARD) { launchSingleTop = true }
+                },
               )
             }
 
@@ -474,6 +540,9 @@ fun GamefyRootScreen(
                 onOpenRandomQuest = {
                   navController.navigate(ROUTE_ADVENTURE_BOARD) { launchSingleTop = true }
                 },
+                onOpenReadyTasksDb = {
+                  navController.navigate(ROUTE_READY_TASKS) { launchSingleTop = true }
+                },
                 openLibraryTrigger = openLibraryNonce,
               )
             }
@@ -494,6 +563,13 @@ fun GamefyRootScreen(
               ChestScreen(
                 uiState = uiState,
                 onUseItem = viewModel::useInventoryItem,
+                onOpenShop = {
+                  navController.navigate(ROUTE_SHOP) {
+                    popUpTo(ROUTE_START) { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                  }
+                },
               )
             }
 
@@ -501,6 +577,7 @@ fun GamefyRootScreen(
               ProfileScreen(
                 uiState = uiState,
                 scrollToAchievementsTrigger = scrollToAchievementsNonce,
+                scrollToNotificationsTrigger = scrollToNotificationsNonce,
                 onAddAttribute = viewModel::addAttribute,
                 onUpdateAttribute = viewModel::updateAttribute,
                 onDeleteAttribute = viewModel::deleteAttribute,
@@ -517,6 +594,7 @@ fun GamefyRootScreen(
                 onToggleNotifications = viewModel::setNotificationsEnabled,
                 onUpdateNotificationSettings = viewModel::updateNotificationSettings,
                 onExportBackup = viewModel::exportBackupJson,
+                onBackupExportResult = viewModel::notifyBackupExportResult,
                 onImportBackup = viewModel::importBackupJson,
                 onOpenReadyTasksDb = { navController.navigate(ROUTE_READY_TASKS) },
                 onOpenRandomQuest = {
@@ -569,6 +647,12 @@ fun GamefyRootScreen(
                 onCreateOrFindTag = viewModel::getOrCreateTag,
                 onSaveTask = viewModel::saveTask,
                 onDeleteTask = viewModel::deleteTask,
+                onOpenNotificationSettings = {
+                  scrollToNotificationsNonce++
+                  navController.navigate(ROUTE_PROFILE) {
+                    launchSingleTop = true
+                  }
+                },
                 onBack = { navController.popBackStack() },
               )
             }
@@ -583,9 +667,9 @@ fun GamefyRootScreen(
 
       if (showExitTimerDialog) {
         val activeDescription = when {
-          mainTimer.isRunning && taskTimer.isRunning -> "Główny timer oraz czasomierz zadania wciąż działają."
+          mainTimer.isRunning && taskTimer.isRunning -> "Główny timer oraz timer zadania wciąż działają."
           mainTimer.isRunning -> "Timer (${mainTimer.mode.label}) wciąż odlicza czas."
-          else -> "Czasomierz zadania wciąż odlicza czas."
+          else -> "Timer zadania wciąż odlicza czas."
         }
         AlertDialog(
           onDismissRequest = { showExitTimerDialog = false },
@@ -621,11 +705,30 @@ fun GamefyRootScreen(
       if (showWeeklyBackupReminder) {
         AlertDialog(
           onDismissRequest = { viewModel.dismissWeeklyBackupReminder() },
-          title = { Text("💾 Pamiętaj o kopii zapasowej") },
+          title = {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              PixelIcon(icon = "save", size = 22.dp)
+              Text("Pamiętaj o kopii zapasowej")
+            }
+          },
           text = {
-            Text(
-              "Ta aplikacja nie ma automatycznej kopii zapasowej. Pamiętaj, żeby regularnie robić kopię zapasową (Profil → Ustawienia → Kopia zapasowa), aby nie stracić swoich postępów."
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+              Text(
+                "Ta aplikacja nie ma automatycznej kopii zapasowej. Pamiętaj, żeby regularnie robić kopię zapasową (Profil → Kopia zapasowa), aby nie stracić swoich postępów."
+              )
+              OutlinedButton(
+                onClick = { viewModel.snoozeWeeklyBackupReminder30Days() },
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .heightIn(min = 48.dp)
+                  .testTag("weekly_backup_snooze_30_days_button"),
+              ) {
+                Text("Nie przypominaj przez 30 dni")
+              }
+            }
           },
           confirmButton = {
             TextButton(
@@ -643,7 +746,7 @@ fun GamefyRootScreen(
               modifier = Modifier.testTag("weekly_backup_dismiss_button"),
               onClick = { viewModel.dismissWeeklyBackupReminder() },
             ) {
-              Text("OK, rozumiem")
+              Text("Później")
             }
           },
         )

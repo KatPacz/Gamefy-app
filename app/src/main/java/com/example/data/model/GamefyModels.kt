@@ -8,7 +8,7 @@ enum class TaskCategory(val code: String, val label: String, val shortPlural: St
   WEEKLY("w", "Tygodniowe", "tyg."),
   MONTHLY("m", "Miesięczne", "mies."),
   YEARLY("y", "Roczne", "lat"),
-  SIDEQUEST("o", "Sidequest (jednorazowe)", "");
+  SIDEQUEST("o", "Zadanie poboczne", "");
 
   companion object {
     fun fromCode(code: String): TaskCategory = entries.find { it.code == code } ?: WEEKLY
@@ -20,7 +20,7 @@ enum class ReminderMode(val code: String, val label: String) {
   AT_DUE("at", "W chwili upływu terminu"),
   DAY_BEFORE("d1", "Dzień przed terminem"),
   THREE_DAYS_BEFORE("d3", "Codziennie przez 3 dni przed terminem"),
-  DAILY_OVERDUE("od", "Codziennie, gdy zadanie jest spóźnione"),
+  DAILY_OVERDUE("od", "Codziennie, gdy zadanie jest po terminie"),
   THREE_DAYS_AND_OVERDUE("all", "3 dni przed + codziennie po terminie");
 
   companion object {
@@ -63,8 +63,8 @@ enum class AppThemeId(
   NIGHT("night", "Noc", isDark = true),
   AMOLED("amoled", "AMOLED", isDark = true),
   SAPPHIRE("sapphire", "Szafir", isDark = true),
-  HIGH_CONTRAST_DAY("hc_day", "Kontrast Dzień", isDark = false, isHighContrast = true),
-  HIGH_CONTRAST_NIGHT("hc_night", "Kontrast Noc", isDark = true, isHighContrast = true);
+  HIGH_CONTRAST_DAY("hc_day", "Jasny", isDark = false, isHighContrast = true),
+  HIGH_CONTRAST_NIGHT("hc_night", "Ciemny", isDark = true, isHighContrast = true);
 
   companion object {
     fun fromCode(code: String): AppThemeId = entries.find { it.code == code } ?: VIOLET
@@ -83,10 +83,10 @@ enum class AppFontSize(val code: String, val label: String, val scale: Float) {
 }
 
 enum class AppFontFamilyOption(val code: String, val label: String, val subtitle: String) {
-  DEFAULT("default", "Domyślna", "Pixel + Jakarta"),
-  OPEN_DYSLEXIC("opendyslexic", "OpenDyslexic", "odp. Lexend"),
-  HELVETICA("helvetica", "Helvetica", "odp. Arimo"),
-  ATKINSON("atkinson", "Atkinson Hyperlegible", "Braille Institute");
+  DEFAULT("default", "Domyślna", "Pixelowe nagłówki i czytelny tekst"),
+  OPEN_DYSLEXIC("opendyslexic", "Lexend", "Szeroki rozstaw liter ułatwiający czytanie"),
+  HELVETICA("helvetica", "Arimo", "Klasyczna, neutralna czcionka"),
+  ATKINSON("atkinson", "Atkinson Hyperlegible", "Bardzo czytelna — wyraźne kształty liter");
 
   companion object {
     fun fromCode(code: String): AppFontFamilyOption = entries.find { it.code == code } ?: DEFAULT
@@ -142,169 +142,11 @@ fun nextCycleTimestamp(baseMillis: Long, category: TaskCategory, interval: Int):
   return cal.timeInMillis
 }
 
-data class AchievementDefinition(
-  val id: String,
-  val icon: String,
-  val title: String,
-  val description: String,
-  val rewardExp: Int = 0,
-  val rewardCoins: Int = 0,
-  val rewardGems: Int = 0,
-  val isSecret: Boolean = false,
-  val isUnlocked: (PlayerStatsSnapshot) -> Boolean,
-) {
-  fun rewardSummary(): String {
-    val parts = mutableListOf<String>()
-    if (rewardExp > 0) parts.add("+$rewardExp EXP")
-    if (rewardCoins > 0) parts.add("+$rewardCoins 🪙")
-    if (rewardGems > 0) parts.add("+$rewardGems 💎")
-    return parts.joinToString(" · ")
-  }
+fun formatGemsLabel(count: Int): String = when {
+  count == 1 -> "1 brylant"
+  count % 10 in 2..4 && count % 100 !in 12..14 -> "$count brylanty"
+  else -> "$count brylantów"
 }
-
-data class PlayerStatsSnapshot(
-  val exp: Int,
-  val tasksDone: Int,
-  val pomosDone: Int,
-  val coinsEarned: Int,
-  val itemsBought: Int,
-  val currentStreak: Int = 0,
-  val bestStreak: Int = 0,
-  val customTasksCreated: Int = 0,
-  val boughtMostExpensive: Boolean = false,
-  val completedNightAction: Boolean = false,
-  val completedSubtaskChain: Boolean = false,
-)
-
-val GAMEFY_ACHIEVEMENTS = listOf(
-  AchievementDefinition(
-    id = "first_task",
-    icon = "🌱",
-    title = "Pierwsze zadanie!",
-    description = "Wykonaj swoje pierwsze zadanie.",
-    rewardExp = 30,
-    rewardCoins = 15,
-  ) { it.tasksDone >= 1 },
-  AchievementDefinition(
-    id = "ten_tasks",
-    icon = "🔟",
-    title = "Dziesiątka",
-    description = "Wykonaj łącznie 10 zadań.",
-    rewardExp = 80,
-    rewardCoins = 40,
-  ) { it.tasksDone >= 10 },
-  AchievementDefinition(
-    id = "hundred_tasks",
-    icon = "💯",
-    title = "Setka mistrzów",
-    description = "Wykonaj łącznie 100 zadań.",
-    rewardExp = 350,
-    rewardCoins = 150,
-    rewardGems = 2,
-  ) { it.tasksDone >= 100 },
-  AchievementDefinition(
-    id = "streak_7",
-    icon = "🎯",
-    title = "Tydzień w rytmie",
-    description = "Streak 7 dni! Wykonaj przynajmniej 1 zadanie dziennie przez 7 dni.",
-    rewardExp = 120,
-    rewardCoins = 60,
-    rewardGems = 1,
-  ) { maxOf(it.currentStreak, it.bestStreak) >= 7 },
-  AchievementDefinition(
-    id = "streak_30",
-    icon = "💪",
-    title = "Miesiąc konsekwencji",
-    description = "Streak 30 dni! Każdego dnia przez 30 dni wykonałeś przynajmniej jedno zadanie.",
-    rewardExp = 400,
-    rewardCoins = 200,
-    rewardGems = 3,
-  ) { maxOf(it.currentStreak, it.bestStreak) >= 30 },
-  AchievementDefinition(
-    id = "streak_100",
-    icon = "trophy",
-    title = "Streak 100 dni!",
-    description = "Każdego dnia przez 100 dni wykonałeś przynajmniej jedno zadanie, oto twoja nagroda!",
-    rewardExp = 1500,
-    rewardCoins = 500,
-    rewardGems = 10,
-  ) { maxOf(it.currentStreak, it.bestStreak) >= 100 },
-  AchievementDefinition(
-    id = "level_five",
-    icon = "⭐",
-    title = "Poziom 5",
-    description = "Osiągnij 5. poziom ogólny.",
-    rewardExp = 100,
-    rewardCoins = 100,
-    rewardGems = 2,
-  ) { calculateLevel(it.exp).level >= 5 },
-  AchievementDefinition(
-    id = "focused_five",
-    icon = "🍅",
-    title = "Skupiony umysł",
-    description = "Ukończ 5 sesji Pomodoro lub Timera.",
-    rewardExp = 100,
-    rewardCoins = 50,
-    rewardGems = 1,
-  ) { it.pomosDone >= 5 },
-  AchievementDefinition(
-    id = "first_buy",
-    icon = "🛍️",
-    title = "Pierwsze zakupy",
-    description = "Kup pierwszą nagrodę w sklepie.",
-    rewardExp = 50,
-    rewardCoins = 25,
-  ) { it.itemsBought >= 1 },
-  AchievementDefinition(
-    id = "treasurer",
-    icon = "💰",
-    title = "Skarbnik",
-    description = "Zdobądź łącznie 500 monet z zadań i sesji.",
-    rewardExp = 150,
-    rewardCoins = 75,
-    rewardGems = 2,
-  ) { it.coinsEarned >= 500 },
-  // Secret achievements (hidden until unlocked!)
-  AchievementDefinition(
-    id = "secret_create_task",
-    icon = "📚",
-    title = "Architekt własnego planu",
-    description = "Dodaj swoje własne zadanie.",
-    rewardExp = 50,
-    rewardCoins = 30,
-    isSecret = true,
-  ) { it.customTasksCreated >= 1 },
-  AchievementDefinition(
-    id = "secret_most_expensive",
-    icon = "gem",
-    title = "Król Sklepu",
-    description = "Kup najdroższy przedmiot w sklepie.",
-    rewardExp = 300,
-    rewardCoins = 100,
-    rewardGems = 3,
-    isSecret = true,
-  ) { it.boughtMostExpensive },
-  AchievementDefinition(
-    id = "secret_subtasks",
-    icon = "check",
-    title = "Krok po kroku",
-    description = "Ukończ zadanie wieloczęściowe poprzez odhaczenie wszystkich jego podzadań.",
-    rewardExp = 100,
-    rewardCoins = 50,
-    rewardGems = 1,
-    isSecret = true,
-  ) { it.completedSubtaskChain },
-  AchievementDefinition(
-    id = "secret_night_owl",
-    icon = "🎨",
-    title = "Nocny Marek",
-    description = "Wykonaj zadanie lub sesję skupienia późną nocą (23:00–04:00).",
-    rewardExp = 80,
-    rewardCoins = 40,
-    rewardGems = 1,
-    isSecret = true,
-  ) { it.completedNightAction },
-)
 
 const val MILLIS_PER_DAY = 86_400_000L
 const val MILLIS_PER_HOUR = 3_600_000L
@@ -322,6 +164,68 @@ fun localEpochDay(millis: Long = System.currentTimeMillis()): Long {
   return (cal.timeInMillis + tzOffset) / MILLIS_PER_DAY
 }
 
+const val BACKUP_WARNING_THRESHOLD_DAYS = 14
+
+fun backupDaysSince(
+  lastBackupExportTimestamp: Long,
+  nowMillis: Long = System.currentTimeMillis(),
+): Int? {
+  if (lastBackupExportTimestamp <= 0L) return null
+  val elapsed = (nowMillis - lastBackupExportTimestamp).coerceAtLeast(0L)
+  return (elapsed / MILLIS_PER_DAY).toInt()
+}
+
+fun isBackupOverdueWarning(
+  lastBackupExportTimestamp: Long,
+  nowMillis: Long = System.currentTimeMillis(),
+): Boolean {
+  val days = backupDaysSince(lastBackupExportTimestamp, nowMillis) ?: return true
+  return days > BACKUP_WARNING_THRESHOLD_DAYS
+}
+
+fun formatLastBackupStatus(
+  lastBackupExportTimestamp: Long,
+  nowMillis: Long = System.currentTimeMillis(),
+): String {
+  val days = backupDaysSince(lastBackupExportTimestamp, nowMillis) ?: return "Ostatnia kopia: nigdy"
+  return when (days) {
+    0 -> "Ostatnia kopia: dzisiaj"
+    1 -> "Ostatnia kopia: 1 dzień temu"
+    else -> "Ostatnia kopia: $days dni temu"
+  }
+}
+
+private val POLISH_MONTHS_GENITIVE = listOf(
+  "stycznia",
+  "lutego",
+  "marca",
+  "kwietnia",
+  "maja",
+  "czerwca",
+  "lipca",
+  "sierpnia",
+  "września",
+  "października",
+  "listopada",
+  "grudnia",
+)
+
+fun formatDetailedBackupStatus(
+  lastBackupExportTimestamp: Long,
+  nowMillis: Long = System.currentTimeMillis(),
+): String {
+  val days = backupDaysSince(lastBackupExportTimestamp, nowMillis) ?: return "Brak kopii zapasowej"
+  val cal = Calendar.getInstance().apply { timeInMillis = lastBackupExportTimestamp }
+  val day = cal.get(Calendar.DAY_OF_MONTH)
+  val monthName = POLISH_MONTHS_GENITIVE.getOrElse(cal.get(Calendar.MONTH)) { "" }
+  val relative = when (days) {
+    0 -> "dzisiaj"
+    1 -> "1 dzień temu"
+    else -> "$days dni temu"
+  }
+  return "Ostatnia kopia: $day $monthName ($relative)"
+}
+
 fun formatDurationShort(diffMillis: Long): String {
   val abs = kotlin.math.abs(diffMillis)
   val days = abs / MILLIS_PER_DAY
@@ -335,14 +239,14 @@ fun formatDurationShort(diffMillis: Long): String {
 }
 
 fun formatFrequencyLabel(category: TaskCategory, interval: Int): String {
-  if (category == TaskCategory.SIDEQUEST) return "Sidequest"
+  if (category == TaskCategory.SIDEQUEST) return "Poboczne"
   if (interval <= 1) {
     return when (category) {
       TaskCategory.DAILY -> "Codziennie"
       TaskCategory.WEEKLY -> "Co tydzień"
       TaskCategory.MONTHLY -> "Co miesiąc"
       TaskCategory.YEARLY -> "Co rok"
-      TaskCategory.SIDEQUEST -> "Sidequest"
+      TaskCategory.SIDEQUEST -> "Poboczne"
     }
   }
   return "Co $interval ${category.shortPlural}"

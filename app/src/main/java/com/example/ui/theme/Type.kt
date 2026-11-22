@@ -14,10 +14,10 @@ import com.example.data.model.AppFontFamilyOption
 import com.example.data.model.AppWordSpacing
 
 val DefaultPixelFontFamily = FontFamily(
-  Font(R.font.pixelify_sans, FontWeight.Normal),
-  Font(R.font.pixelify_sans, FontWeight.Medium),
-  Font(R.font.pixelify_sans, FontWeight.SemiBold),
-  Font(R.font.pixelify_sans, FontWeight.Bold),
+  Font(R.font.jersey_10, FontWeight.Normal),
+  Font(R.font.jersey_10, FontWeight.Medium),
+  Font(R.font.jersey_10, FontWeight.SemiBold),
+  Font(R.font.jersey_10, FontWeight.Bold),
 )
 
 val DefaultBodyFontFamily = FontFamily(
@@ -119,8 +119,8 @@ fun buildGamefyTypography(
     bodyMedium = style(body, FontWeight.Normal, 14f, 20f),
     bodySmall = style(body, FontWeight.Normal, 12f, 17f),
     labelLarge = style(display, FontWeight.Bold, 14f, 18f, baseLetterSpacingSp = 0.4f, isDisplay = true),
-    labelMedium = style(display, FontWeight.Bold, 12f, 16f, baseLetterSpacingSp = 0.4f, isDisplay = true),
-    labelSmall = style(body, FontWeight.Medium, 11f, 14f),
+    labelMedium = style(display, FontWeight.Bold, 12.5f, 16f, baseLetterSpacingSp = 0.35f, isDisplay = true),
+    labelSmall = style(body, FontWeight.Medium, 12f, 16f),
   )
 }
 

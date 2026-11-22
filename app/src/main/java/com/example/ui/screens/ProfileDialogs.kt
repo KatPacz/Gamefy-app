@@ -61,8 +61,8 @@ import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
 import kotlinx.coroutines.launch
 
-private val ATTRIBUTE_ICON_PRESETS = listOf("💪", "📚", "🌿", "🎨", "🎯", "💼", "⭐", "⚡")
-private val FOLDER_ICON_PRESETS = listOf("📁", "🏠", "💼", "💪", "📚", "🌿", "🎯", "🎨")
+private val ATTRIBUTE_ICON_PRESETS = listOf("dumb", "book", "leaf", "palette", "target", "brief", "star", "bolt")
+private val FOLDER_ICON_PRESETS = listOf("folder", "house", "brief", "dumb", "book", "leaf", "target", "palette")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -74,7 +74,7 @@ fun AttributeEditorDialog(
   onDismiss: () -> Unit,
 ) {
   val palette = LocalGamefyPalette.current
-  var icon by remember(existingAttr) { mutableStateOf(existingAttr?.icon ?: "⭐") }
+  var icon by remember(existingAttr) { mutableStateOf(existingAttr?.icon ?: "star") }
   var name by remember(existingAttr) { mutableStateOf(existingAttr?.name ?: "") }
 
   AlertDialog(
@@ -153,12 +153,12 @@ fun AttributeEditorDialog(
     },
     confirmButton = {
       PixelButton(
-        text = if (existingAttr == null) "Dodaj" else "Zapisz",
+        text = "Zapisz",
         compact = true,
         enabled = name.isNotBlank(),
         onClick = {
           val cleanName = name.trim()
-          val cleanIcon = icon.ifBlank { "⭐" }
+          val cleanIcon = icon.ifBlank { "star" }
           if (cleanName.isNotEmpty()) {
             if (existingAttr == null) {
               onSaveNew(cleanIcon, cleanName)
@@ -183,7 +183,7 @@ fun FolderManagerDialog(
   onDismiss: () -> Unit,
 ) {
   val palette = LocalGamefyPalette.current
-  var newIcon by remember { mutableStateOf("📁") }
+  var newIcon by remember { mutableStateOf("folder") }
   var newName by remember { mutableStateOf("") }
   var newColorHex by remember {
     mutableStateOf(DEFAULT_FOLDER_COLOR_PALETTE[folders.size % DEFAULT_FOLDER_COLOR_PALETTE.size])
@@ -193,11 +193,11 @@ fun FolderManagerDialog(
 
   AlertDialog(
     onDismissRequest = onDismiss,
-    title = { Text("Kategorie i foldery (${folders.size})") },
+    title = { Text("Foldery (${folders.size})") },
     text = {
       Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-          text = "Wybierz kolor z koła kolorów — ramki zadań automatycznie przyjmą kolor swojej kategorii.",
+          text = "Wybierz kolor z koła kolorów — ramki zadań automatycznie przyjmą kolor swojego folderu.",
           style = MaterialTheme.typography.bodySmall,
           color = palette.textMuted,
         )
@@ -242,7 +242,7 @@ fun FolderManagerDialog(
             ) {
               Icon(
                 imageVector = Icons.Default.Palette,
-                contentDescription = "Wybierz kolor nowej kategorii",
+                contentDescription = "Wybierz kolor nowego folderu",
                 tint = if (newColor.luminance() > 0.55f) Color.Black else Color.White,
                 modifier = Modifier.size(16.dp),
               )
@@ -258,7 +258,7 @@ fun FolderManagerDialog(
           OutlinedTextField(
             value = newName,
             onValueChange = { newName = it },
-            label = { Text("Nowa kategoria") },
+            label = { Text("Nowy folder") },
             singleLine = true,
             modifier = Modifier
               .weight(1f)
@@ -268,7 +268,7 @@ fun FolderManagerDialog(
             onClick = {
               val clean = newName.trim()
               if (clean.isNotEmpty()) {
-                onAddFolder(newIcon.ifBlank { "📁" }, clean, newColorHex)
+                onAddFolder(newIcon.ifBlank { "folder" }, clean, newColorHex)
                 newName = ""
                 val nextIdx = (folders.size + 1) % DEFAULT_FOLDER_COLOR_PALETTE.size
                 newColorHex = DEFAULT_FOLDER_COLOR_PALETTE[nextIdx]
@@ -278,7 +278,7 @@ fun FolderManagerDialog(
               .size(48.dp)
               .testTag("add_folder_button"),
           ) {
-            Icon(Icons.Default.Add, contentDescription = "Dodaj kategorię")
+            Icon(Icons.Default.Add, contentDescription = "Dodaj folder")
           }
         }
 
@@ -323,7 +323,7 @@ fun FolderManagerDialog(
                   ) {
                     Icon(
                       imageVector = Icons.Default.Palette,
-                      contentDescription = "Zmień kolor kategorii ${folder.name}",
+                      contentDescription = "Zmień kolor folderu ${folder.name}",
                       tint = if (folderColor.luminance() > 0.55f) Color.Black else Color.White,
                       modifier = Modifier.size(15.dp),
                     )
@@ -333,7 +333,7 @@ fun FolderManagerDialog(
                   value = editedIcon,
                   onValueChange = {
                     editedIcon = it
-                    onUpdateFolder(folder.copy(icon = it.ifBlank { "📁" }))
+                    onUpdateFolder(folder.copy(icon = it.ifBlank { "folder" }))
                   },
                   singleLine = true,
                   modifier = Modifier.width(56.dp),
@@ -353,7 +353,7 @@ fun FolderManagerDialog(
                 ) {
                   Icon(
                     imageVector = Icons.Default.Delete,
-                    contentDescription = "Usuń kategorię ${folder.name}",
+                    contentDescription = "Usuń folder ${folder.name}",
                     tint = PixelColors.Red,
                   )
                 }
@@ -371,8 +371,8 @@ fun FolderManagerDialog(
   if (pickingColorForNew) {
     ColorWheelPickerDialog(
       initialColorHex = newColorHex,
-      previewName = newName.ifBlank { "Nowa kategoria" },
-      previewIcon = newIcon.ifBlank { "📁" },
+      previewName = newName.ifBlank { "Nowy folder" },
+      previewIcon = newIcon.ifBlank { "folder" },
       onConfirm = { pickedHex ->
         newColorHex = pickedHex
         pickingColorForNew = false

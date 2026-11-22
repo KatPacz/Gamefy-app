@@ -32,6 +32,8 @@ import com.example.data.model.READY_TASK_TEMPLATES
 import com.example.data.model.REWARD_CATALOG_TEMPLATES
 import com.example.data.model.ReminderMode
 import com.example.data.model.TaskCategory
+import com.example.data.model.formatLastBackupStatus
+import com.example.data.model.isBackupOverdueWarning
 import com.example.data.model.localEpochDay
 import com.example.data.model.toNotificationSettings
 import com.example.data.repository.GamefyRepository
@@ -262,20 +264,22 @@ class GamefyRepositoryTest {
   }
 
   @Test
-  fun `100 day streak unlocks streak_100 achievement and grants grand reward`() = runTest {
+  fun `healthy 21 day streak with weekly streak freeze unlocks gold tier and comeback unlocks after 7 day break`() = runTest {
     val dao = db.gamefyDao()
-    val yesterday = localEpochDay() - 1L
+    val twoDaysAgo = localEpochDay() - 2L
+    // Missing 1 day (gap == 2) uses weekly streak freeze and advances 20 -> 21
     dao.upsertProfile(
       PlayerProfileEntity(
         id = 1L,
-        currentStreak = 99,
-        bestStreak = 99,
-        lastTaskEpochDay = yesterday,
+        currentStreak = 20,
+        bestStreak = 20,
+        lastTaskEpochDay = twoDaysAgo,
+        streakFreezeUsedWeekKey = 0,
       )
     )
     val taskId = dao.insertTask(
       TaskEntity(
-        name = "Zadanie dnia 100",
+        name = "Zadanie po dniu przerwy",
         categoryCode = "o",
         expReward = 25,
         coinReward = 10,
@@ -283,13 +287,26 @@ class GamefyRepositoryTest {
     )
 
     val outcome = repo.completeTask(dao.getTasksOnce().first { it.id == taskId })
-    assertTrue(outcome.unlockedAchievements.any { it.id == "streak_100" })
+    assertTrue(outcome.unlockedAchievements.any { it.id == "streak_21" })
+    assertTrue(outcome.toastMessage.contains("Zamrożenie serii"))
     val p = dao.getProfileOnce()!!
-    assertEquals(100, p.currentStreak)
-    assertEquals(100, p.bestStreak)
-    assertTrue(p.exp >= 25 + 1500)
-    assertTrue(p.coins >= 10 + 500)
-    assertTrue(p.gems >= 10)
+    assertEquals(21, p.currentStreak)
+    assertEquals(21, p.bestStreak)
+    assertTrue(p.streakFreezeUsedWeekKey > 0)
+    assertTrue(p.gems >= 3)
+
+    // Comeback after 8 days break unlocks comeback_after_break
+    dao.upsertProfile(p.copy(lastTaskEpochDay = localEpochDay() - 8L))
+    val comebackId = dao.insertTask(
+      TaskEntity(
+        name = "Powrót po urlopie",
+        categoryCode = "o",
+        expReward = 20,
+        coinReward = 10,
+      )
+    )
+    val comebackOutcome = repo.completeTask(dao.getTasksOnce().first { it.id == comebackId })
+    assertTrue(comebackOutcome.unlockedAchievements.any { it.id == "comeback_after_break" })
   }
 
   @Test
@@ -1043,7 +1060,7 @@ class GamefyRepositoryTest {
     assertTrue(tasksAfterAccept.all { it.penaltyModeCode == PenaltyMode.NONE.code })
     assertTrue(tasksAfterAccept.all { it.coinReward == 2 && it.expReward == 2 })
 
-    val sideQuestFolder = dao.getFoldersOnce().firstOrNull { it.name.equals("Side questy", ignoreCase = true) }
+    val sideQuestFolder = dao.getFoldersOnce().firstOrNull { it.name.equals("Poboczne", ignoreCase = true) }
     assertNotNull(sideQuestFolder)
     assertTrue(tasksAfterAccept.all { it.folderId == sideQuestFolder!!.id })
 
@@ -1092,7 +1109,7 @@ class GamefyRepositoryTest {
     assertEquals(3, boardDay2.remainingSlots)
     assertFalse(boardDay2.isDailyLimitReached)
     assertEquals(1, repo.acceptRandomSideQuests(listOf("rq_001"), nowMillis = day2))
-    assertEquals(RANDOM_SIDE_QUEST_TEMPLATES.size, 6)
+    assertTrue(RANDOM_SIDE_QUEST_TEMPLATES.size >= 6)
   }
 
   @Test
@@ -1131,6 +1148,55 @@ class GamefyRepositoryTest {
   }
 
   @Test
+  fun `backup 30 day snooze export timestamp and 14 day overdue warning work accurately`() = runBlocking {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+    val day0 = 1_763_640_000_000L
+
+    // Never exported -> warning state & "nigdy"
+    assertTrue(isBackupOverdueWarning(0L, day0))
+    assertEquals("Ostatnia kopia: nigdy", formatLastBackupStatus(0L, day0))
+
+    // Complete onboarding & snooze reminder for 30 days
+    repo.completeOnboardingStartFromScratch()
+    repo.snoozeBackupReminderFor30Days(nowMillis = day0)
+    assertFalse(repo.checkAndPrepareWeeklyBackupReminder(nowMillis = day0 + 7L * MILLIS_PER_DAY))
+    assertFalse(repo.checkAndPrepareWeeklyBackupReminder(nowMillis = day0 + 29L * MILLIS_PER_DAY))
+    assertTrue(repo.checkAndPrepareWeeklyBackupReminder(nowMillis = day0 + 30L * MILLIS_PER_DAY))
+
+    // Recording a backup export updates timestamp, clears snooze, and drives 14-day status
+    repo.recordBackupExportCompleted(nowMillis = day0)
+    val saved = dao.getProfileOnce()!!
+    assertEquals(day0, saved.lastBackupExportTimestamp)
+    assertEquals(0L, saved.backupReminderSnoozeUntilTimestamp)
+
+    assertFalse(isBackupOverdueWarning(saved.lastBackupExportTimestamp, day0))
+    assertEquals("Ostatnia kopia: dzisiaj", formatLastBackupStatus(saved.lastBackupExportTimestamp, day0))
+
+    assertFalse(isBackupOverdueWarning(saved.lastBackupExportTimestamp, day0 + 12L * MILLIS_PER_DAY))
+    assertEquals("Ostatnia kopia: 12 dni temu", formatLastBackupStatus(saved.lastBackupExportTimestamp, day0 + 12L * MILLIS_PER_DAY))
+
+    assertFalse(isBackupOverdueWarning(saved.lastBackupExportTimestamp, day0 + 14L * MILLIS_PER_DAY))
+    assertTrue(isBackupOverdueWarning(saved.lastBackupExportTimestamp, day0 + 15L * MILLIS_PER_DAY))
+    assertEquals("Ostatnia kopia: 15 dni temu", formatLastBackupStatus(saved.lastBackupExportTimestamp, day0 + 15L * MILLIS_PER_DAY))
+
+    // Export + import preserves lastBackupExportTimestamp and snooze timestamp
+    repo.snoozeBackupReminderFor30Days(nowMillis = day0 + 1L * MILLIS_PER_DAY)
+    val expectedSnooze = dao.getProfileOnce()!!.backupReminderSnoozeUntilTimestamp
+    val json = repo.exportToJson()
+    dao.upsertProfile(
+      dao.getProfileOnce()!!.copy(
+        lastBackupExportTimestamp = 0L,
+        backupReminderSnoozeUntilTimestamp = 0L,
+      )
+    )
+    assertTrue(repo.importFromJson(json))
+    val restored = dao.getProfileOnce()!!
+    assertEquals(day0, restored.lastBackupExportTimestamp)
+    assertEquals(expectedSnooze, restored.backupReminderSnoozeUntilTimestamp)
+  }
+
+  @Test
   fun `high contrast themes and typography accessibility settings persist and survive json backup`() = runBlocking {
     GamefyDatabase.ensureSeeded(db)
     val dao = db.gamefyDao()
@@ -1158,6 +1224,238 @@ class GamefyRepositoryTest {
     assertEquals(AppFontSize.SUPER_LARGE, AppFontSize.fromCode(restored.fontSizeCode))
     assertEquals(AppFontFamilyOption.ATKINSON, AppFontFamilyOption.fromCode(restored.fontFamilyCode))
     assertEquals(AppWordSpacing.WIDER, AppWordSpacing.fromCode(restored.wordSpacingCode))
+  }
+
+  @Test
+  fun `undoTaskAction atomically restores rewards deadlines penalties subtasks attributes shop items and history`() = runBlocking {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+    val now = System.currentTimeMillis()
+    val attrs = dao.getAttributesOnce()
+    val attr = attrs.first()
+    val rewardItemId = dao.insertShopItem(
+      ShopItemEntity(
+        icon = "coffee",
+        name = "Kawa",
+        coinPrice = 20,
+        ownedQuantity = 1,
+      )
+    )
+    dao.upsertProfile(dao.getProfileOnce()!!.copy(coins = 100, exp = 0, gems = 2))
+
+    // 1. Complete recurring task with unchecked subtasks + reward item -> Undo restores everything
+    val recurringDue = now + 3_600_000L
+    val initialSubtasks = toSubtasksJson(
+      listOf(
+        SubtaskItem(id = 1L, title = "Krok 1", isDone = true),
+        SubtaskItem(id = 2L, title = "Krok 2", isDone = false),
+      )
+    )
+    val recurringId = dao.insertTask(
+      TaskEntity(
+        name = "Codzienny trening",
+        categoryCode = TaskCategory.DAILY.code,
+        repeatInterval = 1,
+        startTimestamp = now - 1_000L,
+        dueTimestamp = recurringDue,
+        coinReward = 15,
+        expReward = 20,
+        gemReward = 1,
+        attributeIdsCsv = attr.id.toString(),
+        rewardItemId = rewardItemId,
+        subtasksJson = initialSubtasks,
+      )
+    )
+    val beforeCompleteProfile = dao.getProfileOnce()!!
+    val beforeCompleteAttr = dao.getAttributesOnce().first { it.id == attr.id }
+    val completeOutcome = repo.completeTask(dao.getTaskByIdOnce(recurringId)!!)
+    assertNotNull(completeOutcome.undoSnapshot)
+    assertTrue(dao.getProfileOnce()!!.coins >= beforeCompleteProfile.coins + 15)
+    assertEquals(2, dao.getShopItemsOnce().first { it.id == rewardItemId }.ownedQuantity)
+    assertTrue(dao.getActivityEventsOnce().isNotEmpty())
+
+    assertTrue(repo.undoTaskAction(completeOutcome.undoSnapshot!!))
+    val afterUndoCompleteTask = dao.getTaskByIdOnce(recurringId)!!
+    assertEquals(0, afterUndoCompleteTask.completedCount)
+    assertEquals(recurringDue, afterUndoCompleteTask.dueTimestamp)
+    assertEquals(initialSubtasks, afterUndoCompleteTask.subtasksJson)
+    assertEquals(beforeCompleteProfile, dao.getProfileOnce()!!)
+    assertEquals(beforeCompleteAttr.exp, dao.getAttributesOnce().first { it.id == attr.id }.exp)
+    assertEquals(1, dao.getShopItemsOnce().first { it.id == rewardItemId }.ownedQuantity)
+    assertTrue(dao.getActivityEventsOnce().isEmpty())
+
+    // 2. Skip with penalty -> Undo restores coins, deadline, and removes skip history event
+    val skipTaskId = dao.insertTask(
+      TaskEntity(
+        name = "Pomiń z karą",
+        categoryCode = TaskCategory.DAILY.code,
+        repeatInterval = 1,
+        startTimestamp = now - 1_000L,
+        dueTimestamp = recurringDue,
+        penaltyModeCode = PenaltyMode.ON_SKIP_ONLY.code,
+        penaltyMinCoins = 12,
+        penaltyMaxCoins = 12,
+      )
+    )
+    val coinsBeforeSkip = dao.getProfileOnce()!!.coins
+    val skipOutcome = repo.skipTaskWithUndo(dao.getTaskByIdOnce(skipTaskId)!!)
+    assertNotNull(skipOutcome.undoSnapshot)
+    assertEquals(coinsBeforeSkip - 12, dao.getProfileOnce()!!.coins)
+    assertEquals(1, dao.getActivityEventsOnce().size)
+
+    assertTrue(repo.undoTaskAction(skipOutcome.undoSnapshot!!))
+    assertEquals(coinsBeforeSkip, dao.getProfileOnce()!!.coins)
+    assertEquals(recurringDue, dao.getTaskByIdOnce(skipTaskId)!!.dueTimestamp)
+    assertTrue(dao.getActivityEventsOnce().isEmpty())
+
+    // 3. Give up one-off SIDEQUEST -> Undo re-inserts deleted task, restores coins, removes event
+    val sideQuestId = dao.insertTask(
+      TaskEntity(
+        name = "Jednorazowy quest",
+        categoryCode = TaskCategory.SIDEQUEST.code,
+        startTimestamp = now - 1_000L,
+        coinReward = 10,
+        penaltyModeCode = PenaltyMode.ON_SKIP_ONLY.code,
+        penaltyMinCoins = 8,
+        penaltyMaxCoins = 8,
+      )
+    )
+    val coinsBeforeGiveUp = dao.getProfileOnce()!!.coins
+    val giveUpOutcome = repo.giveUpTaskWithUndo(dao.getTaskByIdOnce(sideQuestId)!!)
+    assertNotNull(giveUpOutcome.undoSnapshot)
+    assertEquals(null, dao.getTaskByIdOnce(sideQuestId))
+    assertEquals(coinsBeforeGiveUp - 8, dao.getProfileOnce()!!.coins)
+
+    assertTrue(repo.undoTaskAction(giveUpOutcome.undoSnapshot!!))
+    assertNotNull(dao.getTaskByIdOnce(sideQuestId))
+    assertEquals("Jednorazowy quest", dao.getTaskByIdOnce(sideQuestId)!!.name)
+    assertEquals(coinsBeforeGiveUp, dao.getProfileOnce()!!.coins)
+    assertTrue(dao.getActivityEventsOnce().isEmpty())
+
+    // 4. Delete task -> Undo restores task with identical ID
+    val deleteOutcome = repo.deleteTaskWithUndo(sideQuestId)
+    assertNotNull(deleteOutcome.undoSnapshot)
+    assertEquals(null, dao.getTaskByIdOnce(sideQuestId))
+    assertTrue(repo.undoTaskAction(deleteOutcome.undoSnapshot!!))
+    assertNotNull(dao.getTaskByIdOnce(sideQuestId))
+  }
+
+  @Test
+  fun `new data driven achievements unlock across focus shop backup bulk edit and playful secrets`() = runBlocking {
+    val dao = db.gamefyDao()
+    dao.upsertProfile(PlayerProfileEntity(id = 1L, coins = 300, gems = 2))
+    val now = System.currentTimeMillis()
+
+    // 1. Secret: no-letters + last-minute + small quick task
+    val quickSecretId = dao.insertTask(
+      TaskEntity(
+        name = "12345!",
+        categoryCode = "o",
+        durationMinutes = 3,
+        expReward = 15,
+        coinReward = 10,
+        startTimestamp = now - 60_000L,
+        dueTimestamp = now + 30_000L,
+      )
+    )
+    val secretOutcome = repo.completeTask(dao.getTaskByIdOnce(quickSecretId)!!)
+    val secretIds = secretOutcome.unlockedAchievements.map { it.id }.toSet()
+    assertTrue("secret_last_minute" in secretIds)
+    assertTrue("secret_no_letters_task" in secretIds)
+    assertTrue("secret_small_task" in secretIds)
+
+    // 2. Full Pomodoro cycle
+    val pomoOutcome = repo.completeFocusSession(25 * 60, completedFullPomodoroCycle = true)
+    assertTrue(pomoOutcome.unlockedAchievements.any { it.id == "full_pomodoro_cycle" })
+
+    // 3. Regular backups across 3 distinct months
+    val jan = Calendar.getInstance().apply { set(2026, Calendar.JANUARY, 15, 10, 0, 0) }.timeInMillis
+    val feb = Calendar.getInstance().apply { set(2026, Calendar.FEBRUARY, 15, 10, 0, 0) }.timeInMillis
+    val mar = Calendar.getInstance().apply { set(2026, Calendar.MARCH, 15, 10, 0, 0) }.timeInMillis
+    assertTrue(repo.recordBackupExportCompleted(jan).any { it.id == "backup_first" })
+    assertTrue(repo.recordBackupExportCompleted(feb).any { it.id == "backup_months_2" })
+    assertTrue(repo.recordBackupExportCompleted(mar).any { it.id == "backup_months_3" })
+
+    // 4. Bulk edit unlocks bulk_organizer
+    val t1 = dao.insertTask(TaskEntity(name = "A", categoryCode = "d"))
+    val t2 = dao.insertTask(TaskEntity(name = "B", categoryCode = "d"))
+    val (updatedCount, bulkUnlocked) = repo.applyBulkUpdateWithAchievements(
+      taskIds = setOf(t1, t2),
+      category = null,
+      interval = 1,
+      folderId = 1L,
+      reminder = null,
+    )
+    assertEquals(2, updatedCount)
+    assertTrue(bulkUnlocked.any { it.id == "bulk_organizer" })
+
+    // 5. Spending all gems unlocks spent_all_gems
+    val currentGems = dao.getProfileOnce()!!.gems
+    val gemItemId = dao.insertShopItem(ShopItemEntity(icon = "gem", name = "Kryształowa nagroda", coinPrice = 0, gemPrice = currentGems))
+    val gemBuy = repo.buyShopItem(dao.getShopItemsOnce().first { it.id == gemItemId })
+    assertTrue(gemBuy.unlockedAchievements.any { it.id == "spent_all_gems" })
+
+    // 6. Backup export/import preserves new tracking fields
+    val json = repo.exportToJson()
+    dao.upsertProfile(PlayerProfileEntity(id = 1L))
+    assertTrue(repo.importFromJson(json))
+    val restored = dao.getProfileOnce()!!
+    assertTrue(restored.completedLastMinute)
+    assertTrue(restored.completedNoLettersTask)
+    assertTrue(restored.completedSmallTask)
+    assertTrue(restored.spentAllGems)
+    assertEquals(1, restored.fullPomodoroCycles)
+    assertEquals(1, restored.bulkUpdatesDone)
+    assertEquals(3, parseStringCsv(restored.backupMonthsCsv).size)
+  }
+
+  @Test
+  fun `achievements json catalog covers all nine categories enforces healthy rules and computes tier progress`() {
+    val groups = com.example.data.model.GAMEFY_ACHIEVEMENT_GROUPS
+    val all = com.example.data.model.GAMEFY_ACHIEVEMENTS
+    assertTrue("Achievements should load from JSON resource", groups.size >= 25)
+    assertEquals(all.size, all.map { it.id }.toSet().size)
+
+    // All 9 categories represented
+    assertEquals(
+      com.example.data.model.AchievementCategory.entries.toSet(),
+      groups.map { it.category }.toSet(),
+    )
+
+    // No harmful night-owl or extreme 100-day unbroken streak badges
+    assertTrue(all.none { it.id == "secret_night_owl" })
+    assertTrue(all.none { it.id == "streak_100" })
+
+    // Tiered groups have Bronze/Silver/Gold in ascending thresholds
+    val tiered = groups.filter { it.isTiered }
+    assertTrue(tiered.size >= 10)
+    tiered.forEach { group ->
+      assertEquals(
+        listOf(
+          com.example.data.model.AchievementTier.BRONZE,
+          com.example.data.model.AchievementTier.SILVER,
+          com.example.data.model.AchievementTier.GOLD,
+        ),
+        group.tiers.map { it.tier },
+      )
+      assertTrue(group.tiers[0].threshold < group.tiers[1].threshold)
+      assertTrue(group.tiers[1].threshold < group.tiers[2].threshold)
+    }
+
+    // Every secret badge provides a helpful hint
+    val secrets = groups.filter { it.isSecret }
+    assertTrue(secrets.size >= 5)
+    assertTrue(secrets.all { it.secretHint.isNotBlank() })
+
+    // Closest-to-unlock progress calculation
+    val tasksGroup = groups.first { it.id == "tasks_completed" }
+    val prog = com.example.data.model.computeGroupProgress(
+      group = tasksGroup,
+      stats = com.example.data.model.PlayerStatsSnapshot(tasksDone = 8),
+      unlockedIds = setOf("first_task"),
+    )
+    assertEquals("ten_tasks", prog.nextLockedTier?.id)
+    assertEquals(0.8f, prog.progressFraction, 0.001f)
   }
 }
 

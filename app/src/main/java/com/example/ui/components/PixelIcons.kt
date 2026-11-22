@@ -39,7 +39,9 @@ private val PIXEL_SPRITES = mapOf(
   "heart" to "..kkk..kkk..|.krrrkkrrrk.|krwrrrrrrrrk|krwrrrrrrrrk|krrrrrrrrrrk|.krrrrrrrrk.|..krrrrrrk..|...krrrrk...|....krrk....|.....kk.....",
   "gem" to "..kkkkkkkk..|.kcwbbbbbbk.|kcwbbbbbbbbk|kkkkkkkkkkkk|.kcbbbbbbbk.|..kcbbbbbk..|...kcbbbk...|....kbbk....|.....kk.....",
   "trophy" to "..kkkkkkkk..|.kyywyyyyyk.|kkyywyyyyykk|kykyyyyyykyk|kykyyyyyykyk|.kkkyyyyokk.|...kkyyokk..|....kyyok...|...kkkkkkk..|..kyyyyyyok.|..kkkkkkkkkk",
-  "timer" to "....kbbk....|...kkkkkk...|..kwwwwwwk..|.kwwwkwwwwk.|kwwwwkwwwwwk|kwwwwkwwwwwk|kwwwwkkkwwwk|kwwwwwwwwwwk|kwwwwwwwwwwk|.kwwwwwwwwk.|..kwwwwwwk..|...kkkkkk...",
+  "hero" to "...kkkkkk...|..kbbbbbbk..|.kbbccbbbbk.|.kbbbbbbbbk.|.kkkkkkkkkk.|.kbbwwwwbbk.|.kbbwkkwbbk.|.kbbbbbbbbk.|..kbbkkbbk..|..kbbkkbbk..|...kkkkkk...",
+  "warning" to ".....kk.....|....kkyk....|...kyyyyk...|...kykkyk...|..kyykkyyk..|..kyykkyyk..|.kyyykkyyyk.|.kyyyyyyyyk.|kyyyykkyyyyk|kyyyyyyyyyyk|kooooooooooo|kkkkkkkkkkkk",
+  "timer" to "...kkkkkk...|...kbbbbk...|..kkkkkkkk..|.kbbccbbbbk.|kbbccwkbbbbk|kbbccwkbbbbk|kbbbbwkkkbbk|kbbbbbbbbbbk|kbbbbbbbbbbk|.kbbbbbbbbk.|..kbbbbbbk..|...kkkkkk...",
   "check" to ".kkkkkkkkkk.|kggggggggggk|kggggggggwgk|kgggggggwwgk|kgwggggwwggk|kgwwggwwgggk|kggwwwwggggk|kgggwwgggggk|kggggggggggk|.kkkkkkkkkk.",
   "bag" to "....kkkk....|...k....k...|...k....k...|.kkkkkkkkkk.|.kppppppppk.|.kppwwppppk.|.kppppppppk.|.kppppppppk.|.kppppppppk.|.kppppppppk.|.kkkkkkkkkk.",
   "chest" to "..kkkkkkkk..|.knnnnnnnnk.|knnnnnnnnnnk|kkkkkkkkkkkk|knnnnyynnnnk|knnnnyynnnnk|kssssssssssk|kssssssssssk|kkkkkkkkkkkk",
@@ -56,6 +58,15 @@ private val PIXEL_SPRITES = mapOf(
   "sun" to ".....oo.....|.o...oo...o.|..o.kkkk.o..|...kyyyyk...|ookyyyyyykoo|ookyywyyykoo|ookyyyyyykoo|...kyyyyk...|..o.kkkk.o..|.o...oo...o.|.....oo.....",
   "gift" to "..kkk..kkk..|.kpppkkpppk.|..kkkkkkkk..|kvvvvvyyvvvk|.kppppyyppk.|.kppppyyppk.|.kppppyyppk.|.kppppyyppk.|.kppppyyppk.|.kkkkkkkkkk.",
   "checklist" to ".kkkkkkkkkk.|kwwwwwwwwwwk|kwggwkkkkwwk|kwggwwwwwwwk|kwwwwwwwwwwk|kwbbwkkkkwwk|kwbbwwwwwwwk|kwwwwwwwwwwk|kwyywkkkkwwk|kwyywwwwwwwk|kwwwwwwwwwwk|.kkkkkkkkkk.",
+  "sword" to ".........kkk|........kllk|.......kllk.|......kllk..|.....kllk...|..kk.kllk...|..kykkllk...|...kyyyk....|..knkyyk....|.knnk.kk....|.kkk........|............",
+  "flame" to ".....kk.....|....krok....|...krork....|..krooyrk...|..kroyyrk...|.krooyyyrk..|.kroywwyrk..|.krooyyyrk..|..krooork...|...krrrk....|....kkk.....|............",
+  "bell" to ".....kk.....|....kyyk....|...kyyyyk...|..kyyyyyyk..|..kyyyyyyk..|..kyyyyyyk..|.kyyyyyyyyk.|kkkkkkkkkkkk|....k..k....|....kyyk....|.....kk.....|............",
+  "save" to ".kkkkkkkkkk.|kbbbbwwwwbbk|kbbbbwbbwbbk|kbbbbwwwwbbk|kbbbbbbbbbbk|kbbkkkkkkbbk|kbbkwwwwkbbk|kbbkwwwwkbbk|kbbkwwwwkbbk|.kkkkkkkkkk.",
+  "folder" to ".kkkkk......|kyyyyyk.....|kyyyyykkkkkk|kyyyyyyyyyyk|kyyyyyyyyyyk|kyyyyyyyyyyk|kyyyyyyyyyyk|kyyyyyyyyyyk|kooooooooooo|.kkkkkkkkkk.",
+  "bolt" to "......kkkk..|.....kyyyk..|....kyyyk...|...kyyyk....|..kyyyyyyyk.|..kyyyyyyk..|.....kyyk...|....kyyk....|...kyyk.....|..kyyk......|..kkk.......|............",
+  "lock" to "...kkkkkk...|..kllleekk..|..kl....ek..|..ke....ek..|.kkkkkkkkkk.|.kyyywyyyyk.|.kyyykkyyok.|.kyyykkyyok.|.kooooooook.|.kkkkkkkkkk.",
+  "sparkle" to ".....kk.....|.....kyk....|....kyyyk...|...kyywyk...|kkkkyywykkkk|kyyyyyyyyyyk|kkkkyywykkkk|...kyywyk...|....kyyyk...|.....kyk....|.....kk.....|............",
+  "freeze" to ".....kk.....|....kcck....|..k.kcck.k..|.kckkwwkkck.|..kccwwcck..|kccwwwwwwcck|kccwwwwwwcck|..kccwwcck..|.kckkwwkkck.|..k.kcck.k..|....kcck....|.....kk.....",
 )
 
 private val EMOJI_TO_SPRITE = mapOf(
@@ -78,6 +89,22 @@ private val EMOJI_TO_SPRITE = mapOf(
   "🍅" to "timer",
   "🛍" to "bag",
   "💰" to "coin",
+  "📁" to "folder",
+  "🔥" to "flame",
+  "⚔" to "sword",
+  "🔔" to "bell",
+  "💾" to "save",
+  "⚡" to "bolt",
+  "🔒" to "lock",
+  "⏱" to "timer",
+  "📋" to "checklist",
+  "✨" to "sparkle",
+  "✅" to "check",
+  "🏆" to "trophy",
+  "🪙" to "coin",
+  "💎" to "gem",
+  "⚠" to "warning",
+  "🛡" to "hero",
 )
 
 fun resolveSpriteKey(raw: String): String? {
@@ -91,6 +118,8 @@ fun PixelIcon(
   icon: String,
   size: Dp = 24.dp,
   modifier: Modifier = Modifier,
+  grayscale: Boolean = false,
+  monochromeTint: Color? = null,
 ) {
   val spriteKey = resolveSpriteKey(icon)
   val sprite = spriteKey?.let { PIXEL_SPRITES[it] }
@@ -102,13 +131,28 @@ fun PixelIcon(
       val cellH = this.size.height / 12f
       rows.forEachIndexed { y, row ->
         row.forEachIndexed { x, ch ->
-          val color = PIXEL_PALETTE[ch]
-          if (color != null) {
-            drawRect(
-              color = color,
-              topLeft = Offset(x * cellW, (y + offsetY) * cellH),
-              size = Size(cellW + 0.5f, cellH + 0.5f),
-            )
+          val baseColor = PIXEL_PALETTE[ch]
+          if (baseColor != null) {
+            val color = when {
+              monochromeTint != null -> when (ch) {
+                'k' -> monochromeTint
+                'w' -> Color.Transparent
+                else -> monochromeTint.copy(alpha = 0.24f)
+              }
+              grayscale -> {
+                val luma = (0.299f * baseColor.red + 0.587f * baseColor.green + 0.114f * baseColor.blue)
+                  .coerceIn(0f, 1f)
+                Color(red = luma, green = luma, blue = (luma * 1.03f).coerceAtMost(1f), alpha = baseColor.alpha)
+              }
+              else -> baseColor
+            }
+            if (color.alpha > 0f) {
+              drawRect(
+                color = color,
+                topLeft = Offset(x * cellW, (y + offsetY) * cellH),
+                size = Size(cellW + 0.5f, cellH + 0.5f),
+              )
+            }
           }
         }
       }

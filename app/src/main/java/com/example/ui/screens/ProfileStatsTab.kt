@@ -53,6 +53,7 @@ import com.example.data.model.TaskReliabilitySummary
 import com.example.data.model.formatEstimatedDurationMinutes
 import com.example.ui.components.PixelCard
 import com.example.ui.components.PixelIcon
+import com.example.ui.components.PixelSectionHeader
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
 import com.example.ui.theme.PixelFontFamily
@@ -130,8 +131,8 @@ private fun StatsKpiGrid(
       horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
       KpiTile(
-        title = "Średnio / dzień",
-        value = "$avgFormatted zad.",
+        title = "Średnio dziennie",
+        value = "$avgFormatted zadań",
         subtitle = "Dziś: ${analytics.todayDoneCount} · 7 dni: ${analytics.weekDoneCount}",
         accent = LocalGamefyPalette.current.accent,
         modifier = Modifier.weight(1f),
@@ -139,7 +140,7 @@ private fun StatsKpiGrid(
       KpiTile(
         title = "Terminowość",
         value = punctualityText,
-        subtitle = "Łącznie: ${analytics.totalTasksDone} ukończ.",
+        subtitle = "Ukończono: ${analytics.totalTasksDone}",
         accent = PixelColors.Green,
         modifier = Modifier.weight(1f),
       )
@@ -150,7 +151,7 @@ private fun StatsKpiGrid(
     ) {
       KpiTile(
         title = "Seria dni",
-        value = "🔥 $currentStreak dni",
+        value = "$currentStreak dni",
         subtitle = "Rekord: $bestStreak dni",
         accent = PixelColors.Orange,
         modifier = Modifier.weight(1f),
@@ -186,7 +187,7 @@ private fun KpiTile(
       verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
       Text(
-        text = title.uppercase(),
+        text = title,
         style = MaterialTheme.typography.labelSmall,
         color = palette.textMuted,
         maxLines = 1,
@@ -222,34 +223,18 @@ private fun CompletionHistoryCard(
   val totalInSeries = series.sumOf { it.count }
 
   PixelCard {
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-      ) {
+    PixelSectionHeader(
+      title = "Ukończone",
+      badgeText = "$totalInSeries",
+      leading = {
         Icon(
           imageVector = Icons.Default.BarChart,
           contentDescription = null,
           tint = palette.accent,
           modifier = Modifier.size(18.dp),
         )
-        Text(
-          text = "UKOŃCZONE ZADANIA",
-          style = MaterialTheme.typography.titleSmall,
-          color = palette.textMuted,
-        )
-      }
-      Text(
-        text = "Razem: $totalInSeries",
-        style = MaterialTheme.typography.labelMedium,
-        fontWeight = FontWeight.Bold,
-        color = palette.accent,
-      )
-    }
+      },
+    )
 
     Spacer(modifier = Modifier.height(10.dp))
 
@@ -270,7 +255,7 @@ private fun CompletionHistoryCard(
             color = if (selected) palette.accent else Color.Transparent,
             modifier = Modifier
               .weight(1f)
-              .heightIn(min = 36.dp)
+              .heightIn(min = 48.dp)
               .clip(RoundedCornerShape(8.dp))
               .clickable(role = Role.Tab) { onSelectPeriod(option) }
               .testTag("stats_period_${option.name.lowercase()}"),
@@ -399,16 +384,12 @@ private fun TaskReliabilityCard(
 ) {
   val palette = LocalGamefyPalette.current
   PixelCard {
-    Text(
-      text = "NAWYKI: PEWNIAKI I POŚLIZGI",
-      style = MaterialTheme.typography.titleSmall,
-      color = palette.textMuted,
-    )
+    PixelSectionHeader(title = "Nawyki")
     Spacer(modifier = Modifier.height(10.dp))
 
     if (reliableTasks.isEmpty() && delayedTasks.isEmpty()) {
       StatsEmptyHint(
-        text = "Po kilku ukończonych lub pominiętych zadaniach zobaczysz tu zadania wykonywane prawie w 100% oraz te najczęściej opóźniane.",
+        text = "Po kilku ukończonych lub pominiętych zadaniach zobaczysz tu zadania wykonywane najczęściej na czas oraz najczęściej po terminie.",
       )
       return@PixelCard
     }
@@ -425,7 +406,7 @@ private fun TaskReliabilityCard(
           modifier = Modifier.size(16.dp),
         )
         Text(
-          text = "Najbardziej niezawodne (blisko 100%)",
+          text = "Najczęściej na czas",
           style = MaterialTheme.typography.labelLarge,
           fontWeight = FontWeight.Bold,
           color = palette.textPrimary,
@@ -459,7 +440,7 @@ private fun TaskReliabilityCard(
           modifier = Modifier.size(16.dp),
         )
         Text(
-          text = "Regularnie opóźniane lub pomijane",
+          text = "Najczęściej po terminie",
           style = MaterialTheme.typography.labelLarge,
           fontWeight = FontWeight.Bold,
           color = palette.textPrimary,
@@ -470,7 +451,7 @@ private fun TaskReliabilityCard(
         val badge = if (item.isCurrentlyOverdue) {
           "Po terminie"
         } else {
-          "${item.lateOrSkipCount}× poślizg · ${item.onTimePercent}%"
+          "${item.lateOrSkipCount}× po terminie · ${item.onTimePercent}%"
         }
         TaskReliabilityRow(
           item = item,
@@ -535,22 +516,17 @@ private fun CategoryPunctualityCard(
 ) {
   val palette = LocalGamefyPalette.current
   PixelCard {
-    Row(
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-      Icon(
-        imageVector = Icons.Default.Schedule,
-        contentDescription = null,
-        tint = palette.accent,
-        modifier = Modifier.size(18.dp),
-      )
-      Text(
-        text = "TERMINOWOŚĆ WG KATEGORII",
-        style = MaterialTheme.typography.titleSmall,
-        color = palette.textMuted,
-      )
-    }
+    PixelSectionHeader(
+      title = "Terminowość wg kategorii",
+      leading = {
+        Icon(
+          imageVector = Icons.Default.Schedule,
+          contentDescription = null,
+          tint = palette.accent,
+          modifier = Modifier.size(18.dp),
+        )
+      },
+    )
     Spacer(modifier = Modifier.height(10.dp))
 
     if (categories.isEmpty()) {
@@ -616,22 +592,17 @@ private fun CoinEconomyCard(
 ) {
   val palette = LocalGamefyPalette.current
   PixelCard {
-    Row(
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-      Icon(
-        imageVector = Icons.Default.ShoppingBag,
-        contentDescription = null,
-        tint = PixelColors.Gold,
-        modifier = Modifier.size(18.dp),
-      )
-      Text(
-        text = "MONETY I WYDATKI W SKLEPIE",
-        style = MaterialTheme.typography.titleSmall,
-        color = palette.textMuted,
-      )
-    }
+    PixelSectionHeader(
+      title = "Monety i wydatki",
+      leading = {
+        Icon(
+          imageVector = Icons.Default.ShoppingBag,
+          contentDescription = null,
+          tint = PixelColors.Gold,
+          modifier = Modifier.size(18.dp),
+        )
+      },
+    )
 
     Spacer(modifier = Modifier.height(10.dp))
 
@@ -646,18 +617,22 @@ private fun CoinEconomyCard(
           color = if (selected) palette.accent else palette.surfaceSubtle,
           border = BorderStroke(1.dp, if (selected) palette.outline else palette.divider),
           modifier = Modifier
-            .heightIn(min = 36.dp)
+            .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(10.dp))
             .clickable { onSelectRange(option) }
             .testTag("stats_coin_range_${option.name.lowercase()}"),
         ) {
-          Text(
-            text = option.label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            color = if (selected) Color.White else palette.textPrimary,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-          )
+          Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+          ) {
+            Text(
+              text = option.label,
+              style = MaterialTheme.typography.labelMedium,
+              fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+              color = if (selected) Color.White else palette.textPrimary,
+            )
+          }
         }
       }
     }
@@ -670,19 +645,19 @@ private fun CoinEconomyCard(
     ) {
       EconomyMiniStat(
         label = "Zdobyte",
-        value = "+${economy.coinsEarned} 🪙",
+        value = "+${economy.coinsEarned} monet",
         color = PixelColors.GreenDark,
         modifier = Modifier.weight(1f),
       )
       EconomyMiniStat(
         label = "Sklep",
-        value = "−${economy.coinsSpentShop} 🪙",
+        value = "−${economy.coinsSpentShop} monet",
         color = palette.accent,
         modifier = Modifier.weight(1f),
       )
       EconomyMiniStat(
         label = "Kary",
-        value = "−${economy.coinsLostPenalty} 🪙",
+        value = "−${economy.coinsLostPenalty} monet",
         color = PixelColors.Red,
         modifier = Modifier.weight(1f),
       )
@@ -691,7 +666,7 @@ private fun CoinEconomyCard(
     Spacer(modifier = Modifier.height(8.dp))
     val netPrefix = if (economy.netCoins >= 0) "+" else ""
     Text(
-      text = "Bilans okresu: $netPrefix${economy.netCoins} 🪙",
+      text = "Bilans okresu: $netPrefix${economy.netCoins} monet",
       style = MaterialTheme.typography.labelMedium,
       fontWeight = FontWeight.Bold,
       color = if (economy.netCoins >= 0) PixelColors.GreenDark else PixelColors.Red,
@@ -762,12 +737,17 @@ private fun ShopSpendRow(
 ) {
   val palette = LocalGamefyPalette.current
   val costSummary = buildString {
-    if (item.totalCoins > 0) append("${item.totalCoins} 🪙")
+    if (item.totalCoins > 0) append("${item.totalCoins} monet")
     if (item.totalGems > 0) {
       if (isNotEmpty()) append(" · ")
-      append("${item.totalGems} 💎")
+      val gemWord = when {
+        item.totalGems == 1 -> "brylant"
+        item.totalGems % 10 in 2..4 && item.totalGems % 100 !in 12..14 -> "brylanty"
+        else -> "brylantów"
+      }
+      append("${item.totalGems} $gemWord")
     }
-    if (isEmpty()) append("0 🪙")
+    if (isEmpty()) append("0 monet")
   }
   Surface(
     shape = RoundedCornerShape(10.dp),

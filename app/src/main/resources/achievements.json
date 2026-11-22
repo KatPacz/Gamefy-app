@@ -1,0 +1,415 @@
+[
+  {
+    "id": "tasks_completed",
+    "title": "Wykonawca zadań",
+    "description": "Realizuj kolejne zadania i buduj codzienny rozpęd.",
+    "icon": "check",
+    "category": "REGULARITY",
+    "metric": "TASKS_DONE",
+    "unit": "zadań",
+    "isSecret": false,
+    "tiers": [
+      { "id": "first_task", "tier": "BRONZE", "threshold": 1, "rewardExp": 30, "rewardCoins": 15, "rewardGems": 0, "tierDescription": "Wykonaj swoje pierwsze zadanie." },
+      { "id": "ten_tasks", "tier": "SILVER", "threshold": 10, "rewardExp": 80, "rewardCoins": 40, "rewardGems": 1, "tierDescription": "Wykonaj łącznie 10 zadań." },
+      { "id": "hundred_tasks", "tier": "GOLD", "threshold": 100, "rewardExp": 350, "rewardCoins": 150, "rewardGems": 2, "tierDescription": "Wykonaj łącznie 100 zadań." }
+    ]
+  },
+  {
+    "id": "healthy_streak",
+    "title": "Stały rytm",
+    "description": "Utrzymuj spokojną serię dni z zadaniami (z 1 dniem zamrożenia w tygodniu).",
+    "icon": "flame",
+    "category": "REGULARITY",
+    "metric": "BEST_STREAK",
+    "unit": "dni",
+    "isSecret": false,
+    "tiers": [
+      { "id": "streak_3", "tier": "BRONZE", "threshold": 3, "rewardExp": 60, "rewardCoins": 30, "rewardGems": 0, "tierDescription": "Utrzymaj serię przez 3 dni." },
+      { "id": "streak_7", "tier": "SILVER", "threshold": 7, "rewardExp": 120, "rewardCoins": 60, "rewardGems": 1, "tierDescription": "Utrzymaj serię przez 7 dni (tydzień w rytmie)." },
+      { "id": "streak_21", "tier": "GOLD", "threshold": 21, "rewardExp": 320, "rewardCoins": 160, "rewardGems": 3, "tierDescription": "Utrzymaj zdrową serię przez 21 dni." }
+    ]
+  },
+  {
+    "id": "comeback_after_break",
+    "title": "Powrót na szlak",
+    "description": "Wróć do działania i ukończ zadanie po co najmniej 7 dniach przerwy.",
+    "icon": "leaf",
+    "category": "REGULARITY",
+    "metric": "COMEBACK_AFTER_BREAK",
+    "unit": "",
+    "isSecret": false,
+    "tiers": [
+      { "id": "comeback_after_break", "tier": "SINGLE", "threshold": 1, "rewardExp": 90, "rewardCoins": 45, "rewardGems": 1, "tierDescription": "Wykonaj pierwsze zadanie po minimum 7 dniach przerwy." }
+    ]
+  },
+  {
+    "id": "ontime_streak",
+    "title": "Punktualny bohater",
+    "description": "Wykonuj zadania terminowo jedno po drugim.",
+    "icon": "target",
+    "category": "PUNCTUALITY",
+    "metric": "BEST_ON_TIME_STREAK",
+    "unit": "z rzędu",
+    "isSecret": false,
+    "tiers": [
+      { "id": "ontime_streak_3", "tier": "BRONZE", "threshold": 3, "rewardExp": 50, "rewardCoins": 25, "rewardGems": 0, "tierDescription": "Ukończ 3 zadania na czas z rzędu." },
+      { "id": "ontime_streak_10", "tier": "SILVER", "threshold": 10, "rewardExp": 140, "rewardCoins": 70, "rewardGems": 1, "tierDescription": "Ukończ 10 zadań na czas z rzędu." },
+      { "id": "ontime_streak_25", "tier": "GOLD", "threshold": 25, "rewardExp": 300, "rewardCoins": 140, "rewardGems": 2, "tierDescription": "Ukończ 25 zadań na czas z rzędu." }
+    ]
+  },
+  {
+    "id": "ontime_total",
+    "title": "Mistrz terminów",
+    "description": "Buduj niezawodność, kończąc zadania przed upływem czasu.",
+    "icon": "star",
+    "category": "PUNCTUALITY",
+    "metric": "ON_TIME_TASKS_DONE",
+    "unit": "na czas",
+    "isSecret": false,
+    "tiers": [
+      { "id": "ontime_5", "tier": "BRONZE", "threshold": 5, "rewardExp": 60, "rewardCoins": 30, "rewardGems": 0, "tierDescription": "Ukończ 5 zadań na czas." },
+      { "id": "ontime_25", "tier": "SILVER", "threshold": 25, "rewardExp": 160, "rewardCoins": 80, "rewardGems": 1, "tierDescription": "Ukończ 25 zadań na czas." },
+      { "id": "ontime_75", "tier": "GOLD", "threshold": 75, "rewardExp": 350, "rewardCoins": 160, "rewardGems": 2, "tierDescription": "Ukończ 75 zadań na czas." }
+    ]
+  },
+  {
+    "id": "clean_week",
+    "title": "Tydzień na czysto",
+    "description": "Pełny tydzień aktywności (min. 5 zadań) bez żadnych zaległości.",
+    "icon": "sparkle",
+    "category": "PUNCTUALITY",
+    "metric": "CLEAN_WEEK",
+    "unit": "",
+    "isSecret": false,
+    "tiers": [
+      { "id": "clean_week", "tier": "SINGLE", "threshold": 1, "rewardExp": 180, "rewardCoins": 90, "rewardGems": 2, "tierDescription": "Ukończ min. 5 zadań w 7 dni bez opóźnień i bez zaległych zadań." }
+    ]
+  },
+  {
+    "id": "focus_sessions",
+    "title": "Skupiony umysł",
+    "description": "Ukończ kolejne sesje Pomodoro lub Timera.",
+    "icon": "timer",
+    "category": "FOCUS",
+    "metric": "POMOS_DONE",
+    "unit": "sesji",
+    "isSecret": false,
+    "tiers": [
+      { "id": "focused_five", "tier": "BRONZE", "threshold": 5, "rewardExp": 100, "rewardCoins": 50, "rewardGems": 1, "tierDescription": "Ukończ 5 sesji Pomodoro lub Timera." },
+      { "id": "focused_20", "tier": "SILVER", "threshold": 20, "rewardExp": 220, "rewardCoins": 110, "rewardGems": 2, "tierDescription": "Ukończ 20 sesji Pomodoro lub Timera." },
+      { "id": "focused_60", "tier": "GOLD", "threshold": 60, "rewardExp": 450, "rewardCoins": 220, "rewardGems": 3, "tierDescription": "Ukończ 60 sesji Pomodoro lub Timera." }
+    ]
+  },
+  {
+    "id": "focus_hours",
+    "title": "Głębokie skupienie",
+    "description": "Zbieraj łączny czas spędzony w trybie skupienia.",
+    "icon": "bolt",
+    "category": "FOCUS",
+    "metric": "TOTAL_FOCUS_MINUTES",
+    "unit": "min",
+    "displayDivisor": 60,
+    "displayUnit": "h",
+    "isSecret": false,
+    "tiers": [
+      { "id": "focus_hours_2", "tier": "BRONZE", "threshold": 120, "rewardExp": 100, "rewardCoins": 50, "rewardGems": 1, "tierDescription": "Spędź łącznie 2 godziny w trybie skupienia." },
+      { "id": "focus_hours_10", "tier": "SILVER", "threshold": 600, "rewardExp": 260, "rewardCoins": 130, "rewardGems": 2, "tierDescription": "Spędź łącznie 10 godzin w trybie skupienia." },
+      { "id": "focus_hours_50", "tier": "GOLD", "threshold": 3000, "rewardExp": 600, "rewardCoins": 300, "rewardGems": 4, "tierDescription": "Spędź łącznie 50 godzin w trybie skupienia." }
+    ]
+  },
+  {
+    "id": "full_pomodoro_cycle",
+    "title": "Pełny cykl Pomodoro",
+    "description": "Przejdź pełny blok 4 sesji Pomodoro z zasłużoną długą przerwą.",
+    "icon": "cup",
+    "category": "FOCUS",
+    "metric": "FULL_POMODORO_CYCLES",
+    "unit": "",
+    "isSecret": false,
+    "tiers": [
+      { "id": "full_pomodoro_cycle", "tier": "SINGLE", "threshold": 1, "rewardExp": 140, "rewardCoins": 70, "rewardGems": 1, "tierDescription": "Ukończ pełny cykl 4 sesji Pomodoro i wejdź w długą przerwę." }
+    ]
+  },
+  {
+    "id": "hero_level",
+    "title": "Rozwój bohatera",
+    "description": "Zdobywaj doświadczenie i awansuj na kolejne poziomy postaci.",
+    "icon": "hero",
+    "category": "CHARACTER",
+    "metric": "PLAYER_LEVEL",
+    "unit": "poz.",
+    "isSecret": false,
+    "tiers": [
+      { "id": "level_three", "tier": "BRONZE", "threshold": 3, "rewardExp": 60, "rewardCoins": 50, "rewardGems": 1, "tierDescription": "Osiągnij 3. poziom ogólny." },
+      { "id": "level_five", "tier": "SILVER", "threshold": 5, "rewardExp": 100, "rewardCoins": 100, "rewardGems": 2, "tierDescription": "Osiągnij 5. poziom ogólny." },
+      { "id": "level_ten", "tier": "GOLD", "threshold": 10, "rewardExp": 300, "rewardCoins": 250, "rewardGems": 4, "tierDescription": "Osiągnij 10. poziom ogólny." }
+    ]
+  },
+  {
+    "id": "attribute_master",
+    "title": "Mistrz atrybutu",
+    "description": "Rozwijaj wybrany atrybut postaci na wyższe poziomy.",
+    "icon": "dumb",
+    "category": "CHARACTER",
+    "metric": "MAX_ATTRIBUTE_LEVEL",
+    "unit": "poz.",
+    "isSecret": false,
+    "tiers": [
+      { "id": "attr_level_3", "tier": "BRONZE", "threshold": 3, "rewardExp": 70, "rewardCoins": 35, "rewardGems": 1, "tierDescription": "Rozwiń dowolny atrybut do poziomu 3." },
+      { "id": "attr_level_5", "tier": "SILVER", "threshold": 5, "rewardExp": 150, "rewardCoins": 80, "rewardGems": 2, "tierDescription": "Rozwiń dowolny atrybut do poziomu 5." },
+      { "id": "attr_level_10", "tier": "GOLD", "threshold": 10, "rewardExp": 380, "rewardCoins": 180, "rewardGems": 4, "tierDescription": "Rozwiń dowolny atrybut do poziomu 10." }
+    ]
+  },
+  {
+    "id": "balanced_attributes",
+    "title": "Równowaga sił",
+    "description": "Doprowadź wszystkie swoje atrybuty do tego samego poziomu (min. poziom 2).",
+    "icon": "palette",
+    "category": "CHARACTER",
+    "metric": "BALANCED_ATTRIBUTES",
+    "unit": "",
+    "isSecret": false,
+    "tiers": [
+      { "id": "balanced_attributes", "tier": "SINGLE", "threshold": 1, "rewardExp": 160, "rewardCoins": 90, "rewardGems": 2, "tierDescription": "Wszystkie atrybuty (min. 2) na równym poziomie powyżej 1." }
+    ]
+  },
+  {
+    "id": "shop_collector",
+    "title": "Łowca nagród",
+    "description": "Nagradzaj się za postępy, kupując przedmioty w swoim sklepie.",
+    "icon": "bag",
+    "category": "SHOP",
+    "metric": "ITEMS_BOUGHT",
+    "unit": "zakupów",
+    "isSecret": false,
+    "tiers": [
+      { "id": "first_buy", "tier": "BRONZE", "threshold": 1, "rewardExp": 50, "rewardCoins": 25, "rewardGems": 0, "tierDescription": "Kup pierwszą nagrodę w sklepie." },
+      { "id": "five_buys", "tier": "SILVER", "threshold": 5, "rewardExp": 120, "rewardCoins": 60, "rewardGems": 1, "tierDescription": "Kup łącznie 5 nagród w sklepie." },
+      { "id": "twenty_buys", "tier": "GOLD", "threshold": 20, "rewardExp": 280, "rewardCoins": 140, "rewardGems": 2, "tierDescription": "Kup łącznie 20 nagród w sklepie." }
+    ]
+  },
+  {
+    "id": "coin_treasurer",
+    "title": "Skarbnik",
+    "description": "Gromadź monety za wykonywane zadania i sesje skupienia.",
+    "icon": "coin",
+    "category": "SHOP",
+    "metric": "COINS_EARNED",
+    "unit": "monet",
+    "isSecret": false,
+    "tiers": [
+      { "id": "treasurer_bronze", "tier": "BRONZE", "threshold": 250, "rewardExp": 80, "rewardCoins": 40, "rewardGems": 1, "tierDescription": "Zdobądź łącznie 250 monet." },
+      { "id": "treasurer", "tier": "SILVER", "threshold": 500, "rewardExp": 150, "rewardCoins": 75, "rewardGems": 2, "tierDescription": "Zdobądź łącznie 500 monet." },
+      { "id": "treasurer_gold", "tier": "GOLD", "threshold": 2000, "rewardExp": 350, "rewardCoins": 180, "rewardGems": 3, "tierDescription": "Zdobądź łącznie 2000 monet." }
+    ]
+  },
+  {
+    "id": "spent_all_gems",
+    "title": "Do ostatniego kryształu",
+    "description": "Wydaj swoje ostatnie kryształy na upragnioną nagrodę w sklepie.",
+    "icon": "gem",
+    "category": "SHOP",
+    "metric": "SPENT_ALL_GEMS",
+    "unit": "",
+    "isSecret": false,
+    "tiers": [
+      { "id": "spent_all_gems", "tier": "SINGLE", "threshold": 1, "rewardExp": 110, "rewardCoins": 60, "rewardGems": 1, "tierDescription": "Kup przedmiot za kryształy, wydając je do zera." }
+    ]
+  },
+  {
+    "id": "well_earned_reward",
+    "title": "Zasłużona nagroda",
+    "description": "Przyznaj sobie nagrodę w sklepie po intensywnym tygodniu pracy.",
+    "icon": "gift",
+    "category": "SHOP",
+    "metric": "WELL_EARNED_REWARD",
+    "unit": "",
+    "isSecret": false,
+    "tiers": [
+      { "id": "well_earned_reward", "tier": "SINGLE", "threshold": 1, "rewardExp": 120, "rewardCoins": 50, "rewardGems": 1, "tierDescription": "Kup nagrodę po ukończeniu co najmniej 7 zadań w ostatnich 7 dniach." }
+    ]
+  },
+  {
+    "id": "side_quest_adventurer",
+    "title": "Poszukiwacz przygód",
+    "description": "Ukończ zadania poboczne przyjęte z Tablicy Przygód.",
+    "icon": "sword",
+    "category": "ADVENTURE",
+    "metric": "SIDE_QUESTS_COMPLETED",
+    "unit": "pobocznych",
+    "isSecret": false,
+    "tiers": [
+      { "id": "sidequest_1", "tier": "BRONZE", "threshold": 1, "rewardExp": 50, "rewardCoins": 25, "rewardGems": 0, "tierDescription": "Ukończ pierwsze zadanie poboczne." },
+      { "id": "sidequest_5", "tier": "SILVER", "threshold": 5, "rewardExp": 130, "rewardCoins": 65, "rewardGems": 1, "tierDescription": "Ukończ 5 zadań pobocznych." },
+      { "id": "sidequest_15", "tier": "GOLD", "threshold": 15, "rewardExp": 300, "rewardCoins": 150, "rewardGems": 2, "tierDescription": "Ukończ 15 zadań pobocznych." }
+    ]
+  },
+  {
+    "id": "full_adventure_board",
+    "title": "Pełna tablica",
+    "description": "Przyjmij komplet 3/3 zadań pobocznych jednego dnia.",
+    "icon": "trophy",
+    "category": "ADVENTURE",
+    "metric": "FULL_ADVENTURE_BOARD_DAY",
+    "unit": "",
+    "isSecret": false,
+    "tiers": [
+      { "id": "full_adventure_board", "tier": "SINGLE", "threshold": 1, "rewardExp": 90, "rewardCoins": 45, "rewardGems": 1, "tierDescription": "Przyjmij 3/3 zadania poboczne z Tablicy Przygód jednego dnia." }
+    ]
+  },
+  {
+    "id": "subtask_progress",
+    "title": "Mistrz podzadań",
+    "description": "Rozbijaj duże zadania na mniejsze kroki i odhaczaj podzadania.",
+    "icon": "checklist",
+    "category": "ORGANIZATION",
+    "metric": "SUBTASKS_COMPLETED",
+    "unit": "podzadań",
+    "isSecret": false,
+    "tiers": [
+      { "id": "subtasks_5", "tier": "BRONZE", "threshold": 5, "rewardExp": 50, "rewardCoins": 25, "rewardGems": 0, "tierDescription": "Ukończ 5 podzadań." },
+      { "id": "subtasks_25", "tier": "SILVER", "threshold": 25, "rewardExp": 130, "rewardCoins": 65, "rewardGems": 1, "tierDescription": "Ukończ 25 podzadań." },
+      { "id": "subtasks_100", "tier": "GOLD", "threshold": 100, "rewardExp": 300, "rewardCoins": 150, "rewardGems": 2, "tierDescription": "Ukończ łącznie 100 podzadań." }
+    ]
+  },
+  {
+    "id": "folder_tag_organizer",
+    "title": "Porządek w planie",
+    "description": "Korzystaj z folderów i tagów, aby szybko odnajdywać zadania.",
+    "icon": "folder",
+    "category": "ORGANIZATION",
+    "metric": "ORG_ITEMS_COUNT",
+    "unit": "elem.",
+    "isSecret": false,
+    "tiers": [
+      { "id": "org_first", "tier": "BRONZE", "threshold": 1, "rewardExp": 40, "rewardCoins": 20, "rewardGems": 0, "tierDescription": "Utwórz własny folder lub tag." },
+      { "id": "org_five", "tier": "SILVER", "threshold": 5, "rewardExp": 90, "rewardCoins": 45, "rewardGems": 1, "tierDescription": "Utwórz łącznie 5 własnych folderów lub tagów." },
+      { "id": "org_ten", "tier": "GOLD", "threshold": 10, "rewardExp": 160, "rewardCoins": 80, "rewardGems": 1, "tierDescription": "Utwórz łącznie 10 własnych folderów lub tagów." }
+    ]
+  },
+  {
+    "id": "all_tasks_in_folders",
+    "title": "Wszystko na swoim miejscu",
+    "description": "Przypisz każde aktywne zadanie (min. 3) do odpowiedniego folderu.",
+    "icon": "house",
+    "category": "ORGANIZATION",
+    "metric": "ALL_TASKS_IN_FOLDERS",
+    "unit": "",
+    "isSecret": false,
+    "tiers": [
+      { "id": "all_tasks_in_folders", "tier": "SINGLE", "threshold": 1, "rewardExp": 90, "rewardCoins": 45, "rewardGems": 1, "tierDescription": "Wszystkie aktywne zadania (co najmniej 3) znajdują się w folderach." }
+    ]
+  },
+  {
+    "id": "bulk_organizer",
+    "title": "Hurtem szybciej",
+    "description": "Zaktualizuj pierwszą partię zadań naraz w trybie edycji zbiorczej.",
+    "icon": "brief",
+    "category": "ORGANIZATION",
+    "metric": "BULK_UPDATES_DONE",
+    "unit": "",
+    "isSecret": false,
+    "tiers": [
+      { "id": "bulk_organizer", "tier": "SINGLE", "threshold": 1, "rewardExp": 70, "rewardCoins": 35, "rewardGems": 0, "tierDescription": "Użyj edycji zbiorczej, aby zaktualizować kilka zadań jednocześnie." }
+    ]
+  },
+  {
+    "id": "backup_guardian",
+    "title": "Strażnik danych",
+    "description": "Twórz kopie zapasowe regularnie w kolejnych miesiącach.",
+    "icon": "save",
+    "category": "DATA_CARE",
+    "metric": "DISTINCT_BACKUP_MONTHS",
+    "unit": "mies.",
+    "isSecret": false,
+    "tiers": [
+      { "id": "backup_first", "tier": "BRONZE", "threshold": 1, "rewardExp": 80, "rewardCoins": 40, "rewardGems": 1, "tierDescription": "Wykonaj swoją pierwszą kopię zapasową." },
+      { "id": "backup_months_2", "tier": "SILVER", "threshold": 2, "rewardExp": 140, "rewardCoins": 70, "rewardGems": 1, "tierDescription": "Zapisz kopię zapasową w 2 różnych miesiącach." },
+      { "id": "backup_months_3", "tier": "GOLD", "threshold": 3, "rewardExp": 250, "rewardCoins": 120, "rewardGems": 2, "tierDescription": "Zapisz regularne kopie zapasowe w 3 różnych miesiącach." }
+    ]
+  },
+  {
+    "id": "secret_create_task",
+    "title": "Architekt własnego planu",
+    "description": "Dodaj swoje własne zadanie od podstaw.",
+    "secretHint": "Każda przygoda zaczyna się od własnego pomysłu na zadanie.",
+    "icon": "book",
+    "category": "SECRET",
+    "metric": "CUSTOM_TASKS_CREATED",
+    "unit": "",
+    "isSecret": true,
+    "tiers": [
+      { "id": "secret_create_task", "tier": "SINGLE", "threshold": 1, "rewardExp": 50, "rewardCoins": 30, "rewardGems": 0, "tierDescription": "Dodaj swoje własne zadanie." }
+    ]
+  },
+  {
+    "id": "secret_most_expensive",
+    "title": "Król Sklepu",
+    "description": "Kup najdroższy przedmiot dostępny w Twoim sklepie.",
+    "secretHint": "W sklepie czeka nagroda z najwyższą ceną...",
+    "icon": "gem",
+    "category": "SECRET",
+    "metric": "BOUGHT_MOST_EXPENSIVE",
+    "unit": "",
+    "isSecret": true,
+    "tiers": [
+      { "id": "secret_most_expensive", "tier": "SINGLE", "threshold": 1, "rewardExp": 300, "rewardCoins": 100, "rewardGems": 3, "tierDescription": "Kup najdroższy przedmiot w sklepie." }
+    ]
+  },
+  {
+    "id": "secret_subtasks",
+    "title": "Krok po kroku",
+    "description": "Ukończ zadanie wieloczęściowe przez odhaczenie wszystkich jego podzadań.",
+    "secretHint": "Wielkie zadanie najłatwiej zamknąć, odhaczając krok po kroku.",
+    "icon": "check",
+    "category": "SECRET",
+    "metric": "COMPLETED_SUBTASK_CHAIN",
+    "unit": "",
+    "isSecret": true,
+    "tiers": [
+      { "id": "secret_subtasks", "tier": "SINGLE", "threshold": 1, "rewardExp": 100, "rewardCoins": 50, "rewardGems": 1, "tierDescription": "Ukończ zadanie poprzez odhaczenie wszystkich podzadań." }
+    ]
+  },
+  {
+    "id": "secret_last_minute",
+    "title": "Rzutem na taśmę",
+    "description": "Ukończ zadanie w ostatniej minucie przed upływem terminu.",
+    "secretHint": "Czasem o sukcesie decyduje dosłownie ostatnia minuta...",
+    "icon": "bolt",
+    "category": "SECRET",
+    "metric": "COMPLETED_LAST_MINUTE",
+    "unit": "",
+    "isSecret": true,
+    "tiers": [
+      { "id": "secret_last_minute", "tier": "SINGLE", "threshold": 1, "rewardExp": 110, "rewardCoins": 55, "rewardGems": 1, "tierDescription": "Ukończ zadanie na mniej niż 60 sekund przed terminem." }
+    ]
+  },
+  {
+    "id": "secret_no_letters_task",
+    "title": "Bez słów",
+    "description": "Ukończ zadanie, którego nazwa nie zawiera ani jednej litery.",
+    "secretHint": "Czy nazwa zadania musi zawierać choć jedną literę?",
+    "icon": "sparkle",
+    "category": "SECRET",
+    "metric": "COMPLETED_NO_LETTERS_TASK",
+    "unit": "",
+    "isSecret": true,
+    "tiers": [
+      { "id": "secret_no_letters_task", "tier": "SINGLE", "threshold": 1, "rewardExp": 80, "rewardCoins": 40, "rewardGems": 1, "tierDescription": "Ukończ zadanie zapisane samymi cyframi lub symbolami." }
+    ]
+  },
+  {
+    "id": "secret_small_task",
+    "title": "Drobiazg",
+    "description": "Ukończ błyskawiczne zadanie o czasie do 5 minut lub symbolicznej nagrodzie.",
+    "secretHint": "Nawet najmniejszy, pięciominutowy drobiazg przybliża do celu.",
+    "icon": "leaf",
+    "category": "SECRET",
+    "metric": "COMPLETED_SMALL_TASK",
+    "unit": "",
+    "isSecret": true,
+    "tiers": [
+      { "id": "secret_small_task", "tier": "SINGLE", "threshold": 1, "rewardExp": 60, "rewardCoins": 30, "rewardGems": 0, "tierDescription": "Ukończ małe, szybkie zadanie." }
+    ]
+  }
+]

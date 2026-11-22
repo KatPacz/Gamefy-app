@@ -3,11 +3,14 @@ package com.example.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,18 +19,22 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +58,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.AttributeEntity
@@ -67,9 +75,122 @@ import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
 import com.example.ui.theme.PixelFontFamily
 
+@Composable
+fun CollapsibleEditorCard(
+  title: String,
+  summary: String,
+  expanded: Boolean,
+  onToggle: () -> Unit,
+  modifier: Modifier = Modifier,
+  subtitle: String? = null,
+  badgeText: String? = null,
+  testTag: String? = null,
+  content: @Composable ColumnScope.() -> Unit,
+) {
+  val palette = LocalGamefyPalette.current
+  PixelCard(
+    modifier = modifier,
+    contentPadding = PaddingValues(0.dp),
+    borderColor = if (expanded) palette.accent.copy(alpha = 0.6f) else palette.divider,
+  ) {
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .heightIn(min = 56.dp)
+        .clickable(role = Role.Button, onClick = onToggle)
+        .let { m -> if (testTag != null) m.testTag(testTag) else m }
+        .padding(horizontal = 16.dp, vertical = 12.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      Column(
+        modifier = Modifier.weight(1f),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+      ) {
+        Text(
+          text = title,
+          fontFamily = PixelFontFamily,
+          fontWeight = FontWeight.Bold,
+          fontSize = 16.sp,
+          color = if (expanded) palette.accent else palette.textPrimary,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+        if (!subtitle.isNullOrBlank()) {
+          Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = palette.textMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+        }
+        Text(
+          text = summary,
+          style = MaterialTheme.typography.bodyMedium,
+          color = palette.textMuted,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+      }
+      if (badgeText != null) {
+        Surface(
+          shape = RoundedCornerShape(999.dp),
+          color = (if (expanded) palette.accent else palette.textMuted).copy(alpha = 0.14f),
+        ) {
+          Text(
+            text = badgeText,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = if (expanded) palette.accent else palette.textMuted,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+          )
+        }
+      }
+      Icon(
+        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+        contentDescription = if (expanded) "Zwiń sekcję $title" else "Rozwiń sekcję $title",
+        tint = if (expanded) palette.accent else palette.textMuted,
+        modifier = Modifier.size(24.dp),
+      )
+    }
+
+    AnimatedVisibility(visible = expanded) {
+      Column(modifier = Modifier.fillMaxWidth()) {
+        HorizontalDivider(color = palette.divider)
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+          content = content,
+        )
+      }
+    }
+  }
+}
+
+private fun TaskDifficulty.shortChipLabel(): String = when (this) {
+  TaskDifficulty.VERY_EASY -> "Bardzo łatwe"
+  TaskDifficulty.EASY -> "Łatwe"
+  TaskDifficulty.MEDIUM -> "Średnie"
+  TaskDifficulty.HARD -> "Trudne"
+  TaskDifficulty.EXTREME -> "Ekstremalne"
+}
+
+private fun ReminderMode.shortSummaryLabel(): String = when (this) {
+  ReminderMode.NONE -> "Przypomnienie: brak"
+  ReminderMode.AT_DUE -> "W terminie"
+  ReminderMode.DAY_BEFORE -> "Dzień przed"
+  ReminderMode.THREE_DAYS_BEFORE -> "3 dni przed"
+  ReminderMode.DAILY_OVERDUE -> "Gdy po terminie"
+  ReminderMode.THREE_DAYS_AND_OVERDUE -> "3 dni + po terminie"
+}
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun TaskRewardsSectionCard(
+  expanded: Boolean,
+  onToggleExpand: () -> Unit,
   autoRewardEnabled: Boolean,
   onToggleAutoReward: () -> Unit,
   difficulty: TaskDifficulty,
@@ -96,20 +217,30 @@ fun TaskRewardsSectionCard(
   val palette = LocalGamefyPalette.current
   var rewardMenuExpanded by remember { mutableStateOf(false) }
 
-  PixelCard {
-    Text(
-      text = "NAGRODY ZA WYKONANIE",
-      style = MaterialTheme.typography.titleSmall,
-      color = palette.textMuted,
-    )
-    Spacer(modifier = Modifier.height(8.dp))
+  val expVal = (expText.toIntOrNull() ?: 0).coerceAtLeast(0)
+  val coinsVal = (coinsText.toIntOrNull() ?: 0).coerceAtLeast(0)
+  val gemsVal = (gemsText.toIntOrNull() ?: 0).coerceAtLeast(0)
+  val chosenItem = shopItems.find { it.id == rewardItemId }
 
-    // Prominent button right underneath "NAGRODY ZA WYKONANIE"
+  val summary = buildString {
+    append("Zdobycz: +$expVal EXP, $coinsVal monet")
+    if (gemsVal > 0) append(", ${com.example.data.model.formatGemsLabel(gemsVal)}")
+    if (chosenItem != null) append(" · ${chosenItem.name}")
+  }
+
+  CollapsibleEditorCard(
+    title = "Zdobycz",
+    summary = summary,
+    expanded = expanded,
+    onToggle = onToggleExpand,
+    testTag = "editor_section_rewards",
+  ) {
+    // Prominent button to enable/disable compact 4-row reward calculation survey
     PixelButton(
       text = if (autoRewardEnabled) {
-        "Automatyczna kalkulacja nagrody ✓"
+        "Wycena zdobyczy (aktywna)"
       } else {
-        "Automatyczna kalkulacja nagrody"
+        "Wycena zdobyczy"
       },
       compact = true,
       containerColor = if (autoRewardEnabled) PixelColors.Green else palette.surfaceSubtle,
@@ -128,7 +259,7 @@ fun TaskRewardsSectionCard(
       onClick = onToggleAutoReward,
     )
 
-    // Short Survey shown below the button when auto calculation is active
+    // Compact 4-row chip survey in one card with fixed live reward footer underneath
     AnimatedVisibility(visible = autoRewardEnabled) {
       Surface(
         shape = RoundedCornerShape(14.dp),
@@ -139,50 +270,40 @@ fun TaskRewardsSectionCard(
           .padding(top = 10.dp)
           .testTag("auto_reward_survey"),
       ) {
-        Column(
-          modifier = Modifier.padding(12.dp),
-          verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-          Text(
-            text = "ANKIETA KALKULACJI NAGRODY",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = palette.accent,
-          )
+        Column(modifier = Modifier.fillMaxWidth()) {
+          Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+              Text(
+                text = "Wycena zdobyczy",
+                fontFamily = PixelFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                color = palette.accent,
+              )
+              Text(
+                text = "4 pytania dopasowujące monety i EXP",
+                style = MaterialTheme.typography.bodySmall,
+                color = palette.textMuted,
+              )
+            }
 
-          // 1. Trudność zadania
-          Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-              text = "1. Trudność zadania",
-              style = MaterialTheme.typography.labelLarge,
-              color = palette.textPrimary,
-            )
-            FlowRow(
-              horizontalArrangement = Arrangement.spacedBy(6.dp),
-              verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
+            // Row 1: Trudność
+            SurveyChipRow(label = "1. Trudność") {
               TaskDifficulty.entries.forEach { diff ->
                 SurveyChoiceChip(
-                  label = diff.label,
+                  label = diff.shortChipLabel(),
                   selected = difficulty == diff,
                   onClick = { onSelectDifficulty(diff) },
                   testTag = "survey_diff_${diff.name.lowercase()}",
                 )
               }
             }
-          }
 
-          // 2. Czas wykonania
-          Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-              text = "2. Czas wykonania",
-              style = MaterialTheme.typography.labelLarge,
-              color = palette.textPrimary,
-            )
-            FlowRow(
-              horizontalArrangement = Arrangement.spacedBy(6.dp),
-              verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
+            // Row 2: Czas wykonania
+            SurveyChipRow(label = "2. Czas") {
               TaskEffortBucket.entries.forEach { bucket ->
                 SurveyChoiceChip(
                   label = bucket.label,
@@ -192,24 +313,14 @@ fun TaskRewardsSectionCard(
                 )
               }
             }
-          }
 
-          // 3. Na ile statystyk (atrybutów) wpływa
-          Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-              text = "3. Na ile statystyk (atrybutów) wpływa?",
-              style = MaterialTheme.typography.labelLarge,
-              color = palette.textPrimary,
-            )
-            FlowRow(
-              horizontalArrangement = Arrangement.spacedBy(6.dp),
-              verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
+            // Row 3: Liczba atrybutów
+            SurveyChipRow(label = "3. Na ile atrybutów wpływa?") {
               listOf(
                 0 to "Brak (0)",
-                1 to "1 statystyka",
-                2 to "2 statystyki",
-                3 to "3+ statystyk",
+                1 to "1 atrybut",
+                2 to "2 atrybuty",
+                3 to "3+ atrybuty",
               ).forEach { (count, label) ->
                 val isSelected = if (count >= 3) surveyAttrCount >= 3 else surveyAttrCount == count
                 SurveyChoiceChip(
@@ -220,16 +331,9 @@ fun TaskRewardsSectionCard(
                 )
               }
             }
-          }
 
-          // 4. Czy zadanie będzie karane za pominięcie / brak terminu
-          Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-              text = "4. Czy będzie karane za pominięcie / brak terminu?",
-              style = MaterialTheme.typography.labelLarge,
-              color = palette.textPrimary,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Row 4: Kara za pominięcie / termin
+            SurveyChipRow(label = "4. Kara") {
               SurveyChoiceChip(
                 label = "Nie",
                 selected = !isPenalized,
@@ -237,10 +341,38 @@ fun TaskRewardsSectionCard(
                 testTag = "survey_penalty_no",
               )
               SurveyChoiceChip(
-                label = "Tak, z karą (+25% nagrody)",
+                label = "Tak (+25% zdobyczy)",
                 selected = isPenalized,
                 onClick = { onSelectIsPenalized(true) },
                 testTag = "survey_penalty_yes",
+              )
+            }
+          }
+
+          HorizontalDivider(color = palette.accent.copy(alpha = 0.3f))
+
+          // Fixed live result strip right beneath the 4 chip rows
+          Surface(
+            color = palette.accent.copy(alpha = 0.14f),
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("survey_live_reward_result"),
+          ) {
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+              Text(
+                text = buildString {
+                  append("Zdobycz: $coinsVal monet · $expVal EXP")
+                  if (gemsVal > 0) append(" · ${com.example.data.model.formatGemsLabel(gemsVal)}")
+                },
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = palette.textPrimary,
               )
             }
           }
@@ -256,13 +388,15 @@ fun TaskRewardsSectionCard(
           style = MaterialTheme.typography.labelLarge,
           color = palette.textPrimary,
         )
-        FlowRow(
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
           horizontalArrangement = Arrangement.spacedBy(6.dp),
-          verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
           TaskDifficulty.entries.forEach { diff ->
             SurveyChoiceChip(
-              label = diff.label,
+              label = diff.shortChipLabel(),
               selected = difficulty == diff,
               onClick = { onSelectDifficulty(diff) },
               testTag = "manual_diff_${diff.name.lowercase()}",
@@ -300,18 +434,18 @@ fun TaskRewardsSectionCard(
         value = gemsText,
         onValueChange = { if (!autoRewardEnabled) onGemsTextChange(it.filter(Char::isDigit)) },
         readOnly = autoRewardEnabled,
-        label = { Text(if (autoRewardEnabled) "💎 (auto)" else "Brylanty") },
+        label = { Text(if (autoRewardEnabled) "Brylanty (auto)" else "Brylanty") },
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         singleLine = true,
         modifier = Modifier
-          .weight(0.9f)
+          .weight(1f)
           .testTag("task_gems_input"),
       )
     }
 
     Spacer(modifier = Modifier.height(10.dp))
     Text(
-      text = "Rozwijane atrybuty (awans atrybutu = +1 💎)",
+      text = "Rozwijane atrybuty (awans atrybutu = +1 brylant)",
       style = MaterialTheme.typography.bodySmall,
       color = palette.textMuted,
     )
@@ -336,7 +470,6 @@ fun TaskRewardsSectionCard(
       expanded = rewardMenuExpanded,
       onExpandedChange = { rewardMenuExpanded = !rewardMenuExpanded },
     ) {
-      val chosenItem = shopItems.find { it.id == rewardItemId }
       OutlinedTextField(
         value = chosenItem?.name ?: "Brak nagrody-przedmiotu",
         onValueChange = {},
@@ -374,15 +507,43 @@ fun TaskRewardsSectionCard(
   }
 }
 
+@Composable
+private fun SurveyChipRow(
+  label: String,
+  chips: @Composable () -> Unit,
+) {
+  val palette = LocalGamefyPalette.current
+  Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Text(
+      text = label,
+      style = MaterialTheme.typography.labelMedium,
+      fontWeight = FontWeight.SemiBold,
+      color = palette.textPrimary,
+    )
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .horizontalScroll(rememberScrollState()),
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+      verticalAlignment = Alignment.CenterVertically,
+    ) {
+      chips()
+    }
+  }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun TaskReminderAndPenaltyCard(
+  expanded: Boolean,
+  onToggleExpand: () -> Unit,
   reminderMode: ReminderMode,
   onSelectReminderMode: (ReminderMode) -> Unit,
   preferredReminderHour: Int,
   preferredReminderMinute: Int,
   onSelectPreferredTime: (Int, Int) -> Unit,
   globalForcedModeActive: Boolean = false,
+  onOpenNotificationSettings: () -> Unit = {},
   penaltyMode: PenaltyMode,
   onSelectPenaltyMode: (PenaltyMode) -> Unit,
   autoPenaltyEnabled: Boolean,
@@ -397,14 +558,34 @@ fun TaskReminderAndPenaltyCard(
   var penaltyMenuExpanded by remember { mutableStateOf(false) }
   var showPreferredTimePicker by remember { mutableStateOf(false) }
 
-  PixelCard {
-    Text(
-      text = "PRZYPOMINAJKA I KARY",
-      style = MaterialTheme.typography.titleSmall,
-      color = palette.textMuted,
-    )
-    Spacer(modifier = Modifier.height(8.dp))
+  val minP = (penaltyMinText.toIntOrNull() ?: 0).coerceAtLeast(0)
+  val maxP = (penaltyMaxText.toIntOrNull() ?: minP).coerceAtLeast(minP)
+  val penaltySummary = if (penaltyMode == PenaltyMode.NONE) {
+    "Kara: brak"
+  } else if (minP == maxP) {
+    "Kara: −$minP monet"
+  } else {
+    "Kara: −$minP–$maxP monet"
+  }
+  val reminderSummary = if (globalForcedModeActive) {
+    "Wspólne powiadomienia"
+  } else {
+    buildString {
+      append(reminderMode.shortSummaryLabel())
+      if (reminderMode != ReminderMode.NONE && preferredReminderHour >= 0) {
+        append(" (${formatTimeHm(preferredReminderHour, preferredReminderMinute)})")
+      }
+    }
+  }
+  val headerSummary = "$penaltySummary · $reminderSummary"
 
+  CollapsibleEditorCard(
+    title = "Przypomnienie i kara",
+    summary = headerSummary,
+    expanded = expanded,
+    onToggle = onToggleExpand,
+    testTag = "editor_section_reminders_penalties",
+  ) {
     if (globalForcedModeActive) {
       Surface(
         shape = RoundedCornerShape(10.dp),
@@ -412,14 +593,40 @@ fun TaskReminderAndPenaltyCard(
         border = BorderStroke(1.dp, PixelColors.Orange.copy(alpha = 0.5f)),
         modifier = Modifier
           .fillMaxWidth()
-          .padding(bottom = 8.dp),
+          .padding(bottom = 8.dp)
+          .testTag("global_notifications_warning_banner"),
       ) {
-        Text(
-          text = "Uwaga: w Profil → Ustawienia wyłączono „Zależne od zadania” — obecnie wymuszone są powiadomienia globalne.",
-          style = MaterialTheme.typography.bodySmall,
-          color = PixelColors.Orange,
-          modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-        )
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .padding(start = 12.dp, end = 4.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+          Text(
+            text = "Włączono wspólne powiadomienia.",
+            style = MaterialTheme.typography.bodySmall,
+            color = palette.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+          )
+          TextButton(
+            onClick = onOpenNotificationSettings,
+            modifier = Modifier
+              .heightIn(min = 48.dp)
+              .testTag("change_notification_mode_link"),
+          ) {
+            Text(
+              text = "Zmień tryb",
+              style = MaterialTheme.typography.labelMedium,
+              fontWeight = FontWeight.Bold,
+              color = palette.accent,
+              maxLines = 1,
+            )
+          }
+        }
       }
     }
 
@@ -431,7 +638,7 @@ fun TaskReminderAndPenaltyCard(
         value = reminderMode.label,
         onValueChange = {},
         readOnly = true,
-        label = { Text("Przypominajka") },
+        label = { Text("Przypomnienie") },
         trailingIcon = {
           ExposedDropdownMenuDefaults.TrailingIcon(expanded = reminderMenuExpanded)
         },
@@ -521,7 +728,7 @@ fun TaskReminderAndPenaltyCard(
               ) {
                 Icon(
                   imageVector = Icons.Default.Close,
-                  contentDescription = "Wyczyść preferowaną godzinę",
+                  contentDescription = "Usuń godzinę",
                   modifier = Modifier.size(18.dp),
                 )
               }
@@ -611,18 +818,18 @@ fun TaskReminderAndPenaltyCard(
               color = if (selected) palette.accent else Color.Transparent,
               modifier = Modifier
                 .weight(1f)
-                .height(38.dp)
+                .heightIn(min = 48.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .clickable(role = Role.Tab) { onToggleAutoPenalty(isAuto) }
                 .testTag(info.second),
             ) {
               Box(contentAlignment = Alignment.Center) {
                 Text(
-                  text = info.first.uppercase(),
+                  text = info.first,
                   fontFamily = PixelFontFamily,
                   fontWeight = FontWeight.Bold,
-                  fontSize = 11.sp,
-                  color = if (selected) Color.White else palette.textMuted,
+                  fontSize = 13.sp,
+                  color = if (selected) palette.onAccent else palette.textMuted,
                 )
               }
             }
@@ -645,7 +852,7 @@ fun TaskReminderAndPenaltyCard(
             verticalArrangement = Arrangement.spacedBy(2.dp),
           ) {
             Text(
-              text = "Automatyczna kara: od $penaltyMinText do $penaltyMaxText 🪙",
+              text = "Automatyczna kara: od $penaltyMinText do $penaltyMaxText monet",
               style = MaterialTheme.typography.titleSmall,
               fontWeight = FontWeight.Bold,
               color = PixelColors.Red,
@@ -722,16 +929,22 @@ private fun SurveyChoiceChip(
     color = if (selected) palette.accent else palette.surface,
     border = BorderStroke(1.5.dp, if (selected) palette.outline else palette.divider),
     modifier = Modifier
+      .heightIn(min = 48.dp)
       .clip(RoundedCornerShape(10.dp))
       .clickable(onClick = onClick)
       .testTag(testTag),
   ) {
-    Text(
-      text = label,
-      style = MaterialTheme.typography.labelMedium,
-      fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-      color = if (selected) Color.White else palette.textPrimary,
+    Box(
+      contentAlignment = Alignment.Center,
       modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-    )
+    ) {
+      Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+        color = if (selected) palette.onAccent else palette.textPrimary,
+        maxLines = 1,
+      )
+    }
   }
 }

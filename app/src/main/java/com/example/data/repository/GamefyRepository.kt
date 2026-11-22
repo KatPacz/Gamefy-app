@@ -32,6 +32,7 @@ import com.example.data.model.AppWordSpacing
 import com.example.data.model.GAMEFY_ACHIEVEMENTS
 import com.example.data.model.MILLIS_PER_DAY
 import com.example.data.model.MILLIS_PER_HOUR
+import com.example.data.model.MILLIS_PER_MINUTE
 import com.example.data.model.NotificationSettings
 import com.example.data.model.NotificationTriggerMode
 import com.example.data.model.OnboardingArea
@@ -39,7 +40,6 @@ import com.example.data.model.OnboardingDetailPref
 import com.example.data.model.OnboardingRewardPref
 import com.example.data.model.OnboardingTimePref
 import com.example.data.model.PenaltyMode
-import com.example.data.model.PlayerStatsSnapshot
 import com.example.data.model.PurchaseLimitPeriod
 import com.example.data.model.READY_TASK_TEMPLATES
 import com.example.data.model.REWARD_CATALOG_TEMPLATES
@@ -47,8 +47,11 @@ import com.example.data.model.ReadyTaskTemplate
 import com.example.data.model.ReminderMode
 import com.example.data.model.RewardCatalogTemplate
 import com.example.data.model.TaskCategory
+import com.example.data.model.TaskDifficulty
+import com.example.data.model.buildPlayerStatsSnapshot
 import com.example.data.model.buildSummaryNotificationText
 import com.example.data.model.calculateLevel
+import com.example.data.model.computeNextStreakWithFreeze
 import com.example.data.model.distributeWeightedExp
 import com.example.data.model.RANDOM_SIDE_QUEST_BOARD_SIZE
 import com.example.data.model.RANDOM_SIDE_QUEST_DAILY_LIMIT
@@ -71,6 +74,7 @@ import com.example.data.model.tasksPlannedForDay
 import com.example.data.model.toAttributeWeightsJson
 import com.example.data.model.toNotificationSettings
 import com.example.data.model.withNotificationSettings
+import com.example.data.model.yearMonthKey
 import java.io.ByteArrayOutputStream
 import java.util.Calendar
 import kotlin.math.max
@@ -84,9 +88,23 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+data class TaskActionUndoSnapshot(
+  val previousTask: TaskEntity,
+  val previousProfile: PlayerProfileEntity? = null,
+  val previousAttributes: List<AttributeEntity> = emptyList(),
+  val previousShopItem: ShopItemEntity? = null,
+  val insertedActivityEventIds: List<Long> = emptyList(),
+)
+
+data class TaskActionOutcome(
+  val toastMessage: String = "",
+  val undoSnapshot: TaskActionUndoSnapshot? = null,
+)
+
 data class RewardOutcome(
   val toastMessage: String = "",
   val unlockedAchievements: List<AchievementDefinition> = emptyList(),
+  val undoSnapshot: TaskActionUndoSnapshot? = null,
 )
 
 class GamefyRepository(private val dao: GamefyDao) {
@@ -103,7 +121,11 @@ class GamefyRepository(private val dao: GamefyDao) {
   val shopItems: Flow<List<ShopItemEntity>> = dao.observeShopItems()
   val activityEvents: Flow<List<ActivityEventEntity>> = dao.observeActivityEvents()
 
-  suspend fun completeTask(task: TaskEntity, fromSubtaskChain: Boolean = false): RewardOutcome =
+  suspend fun completeTask(
+    task: TaskEntity,
+    fromSubtaskChain: Boolean = false,
+    completedSubtaskDelta: Int = 0,
+  ): RewardOutcome =
     completionMutex.withLock {
       val now = System.currentTimeMillis()
       val currentTask = dao.getTaskByIdOnce(task.id) ?: return@withLock RewardOutcome()
@@ -118,12 +140,14 @@ class GamefyRepository(private val dao: GamefyDao) {
         category == TaskCategory.SIDEQUEST || (currentTask.repeatLimit > 0 && newCount >= currentTask.repeatLimit)
 
       var itemSuffix = ""
+      var previousShopItem: ShopItemEntity? = null
       var updatedShopItem: ShopItemEntity? = null
       if (currentTask.rewardItemId > 0L) {
         val shopItem = dao.getShopItemsOnce().find { it.id == currentTask.rewardItemId }
         if (shopItem != null) {
+          previousShopItem = shopItem
           updatedShopItem = shopItem.copy(ownedQuantity = shopItem.ownedQuantity + 1)
-          itemSuffix = " 🎁 ${shopItem.name}"
+          itemSuffix = " + ${shopItem.name}"
         }
       }
 
@@ -161,6 +185,7 @@ class GamefyRepository(private val dao: GamefyDao) {
       val oldLevel = calculateLevel(profile.exp).level
       val allAttrs = dao.getAttributesOnce()
       val weightsByName = parseAttributeWeightsJson(currentTask.attributeWeightsJson)
+      val attrsBeforeUpdate = mutableListOf<AttributeEntity>()
       val attrsToUpdate = mutableListOf<AttributeEntity>()
       var gemsGained = currentTask.gemReward.coerceAtLeast(0)
 
@@ -198,6 +223,7 @@ class GamefyRepository(private val dao: GamefyDao) {
             if (nextAttrLevel > prevAttrLevel) {
               gemsGained += (nextAttrLevel - prevAttrLevel)
             }
+            attrsBeforeUpdate.add(attr)
             attrsToUpdate.add(attr.copy(exp = newAttrExp))
           }
         } else {
@@ -210,18 +236,31 @@ class GamefyRepository(private val dao: GamefyDao) {
             if (nextAttrLevel > prevAttrLevel) {
               gemsGained += (nextAttrLevel - prevAttrLevel)
             }
+            attrsBeforeUpdate.add(attr)
             attrsToUpdate.add(attr.copy(exp = newAttrExp))
           }
         }
       }
 
       val today = localEpochDay(now)
-      val newStreak = when (profile.lastTaskEpochDay) {
-        today -> max(1, profile.currentStreak)
-        today - 1L -> profile.currentStreak + 1
-        else -> 1
-      }
-      val newBestStreak = max(profile.bestStreak, newStreak)
+      val streakResult = computeNextStreakWithFreeze(
+        currentStreak = profile.currentStreak,
+        bestStreak = profile.bestStreak,
+        lastTaskEpochDay = profile.lastTaskEpochDay,
+        freezeUsedWeekKey = profile.streakFreezeUsedWeekKey,
+        todayEpochDay = today,
+      )
+
+      val nextOnTimeStreak = if (onTime) profile.currentOnTimeStreak + 1 else 0
+      val nextBestOnTimeStreak = max(profile.bestOnTimeStreak, nextOnTimeStreak)
+      val nextOnTimeDone = profile.onTimeTasksDone + if (onTime) 1 else 0
+      val isAdventureBoardQuest = currentTask.sourceTemplateId?.startsWith("rsq:") == true
+      val isLastMinute = currentTask.dueTimestamp != null &&
+        (currentTask.dueTimestamp - now) in 0L..MILLIS_PER_MINUTE
+      val isNoLetters = currentTask.name.trim().isNotEmpty() &&
+        currentTask.name.none { it.isLetter() }
+      val isSmallTask = currentTask.durationMinutes in 1..5 ||
+        currentTask.difficultyCode == TaskDifficulty.VERY_EASY.code
 
       val updatedProfile = profile.copy(
         exp = profile.exp + currentTask.expReward,
@@ -229,14 +268,39 @@ class GamefyRepository(private val dao: GamefyDao) {
         gems = profile.gems + gemsGained,
         tasksDone = profile.tasksDone + 1,
         coinsEarned = profile.coinsEarned + currentTask.coinReward,
-        currentStreak = newStreak,
-        bestStreak = newBestStreak,
+        currentStreak = streakResult.newStreak,
+        bestStreak = streakResult.newBestStreak,
         lastTaskEpochDay = today,
-        completedNightAction = profile.completedNightAction || isNightActionNow(),
+        streakFreezeUsedWeekKey = streakResult.freezeUsedWeekKey,
+        comebackAfterBreak = profile.comebackAfterBreak || streakResult.isComebackAfterBreak,
+        currentOnTimeStreak = nextOnTimeStreak,
+        bestOnTimeStreak = nextBestOnTimeStreak,
+        onTimeTasksDone = nextOnTimeDone,
+        sideQuestsCompleted = profile.sideQuestsCompleted + if (isAdventureBoardQuest) 1 else 0,
+        subtasksCompletedCount = profile.subtasksCompletedCount + completedSubtaskDelta.coerceAtLeast(0),
         completedSubtaskChain = profile.completedSubtaskChain || fromSubtaskChain,
+        completedLastMinute = profile.completedLastMinute || isLastMinute,
+        completedNoLettersTask = profile.completedNoLettersTask || isNoLetters,
+        completedSmallTask = profile.completedSmallTask || isSmallTask,
       )
 
-      val (finalProfile, newlyUnlocked) = evaluateAndGrantAchievements(updatedProfile)
+      val updatedAttrsById = attrsToUpdate.associateBy { it.id }
+      val projectedAttrs = allAttrs.map { updatedAttrsById[it.id] ?: it }
+      val projectedTasks = dao.getTasksOnce().mapNotNull { existing ->
+        when {
+          taskIdToDelete != null && existing.id == taskIdToDelete -> null
+          taskToUpdate != null && existing.id == taskToUpdate.id -> taskToUpdate
+          else -> existing
+        }
+      }
+
+      val (finalProfile, newlyUnlocked) = evaluateAndGrantAchievements(
+        baseProfile = updatedProfile,
+        tasksOverride = projectedTasks,
+        attributesOverride = projectedAttrs,
+        extraEvents = listOf(taskEvent),
+        nowMillis = now,
+      )
       val achEvents = newlyUnlocked.mapNotNull { ach ->
         if (ach.rewardCoins > 0 || ach.rewardGems > 0 || ach.rewardExp > 0) {
           ActivityEventEntity(
@@ -250,7 +314,7 @@ class GamefyRepository(private val dao: GamefyDao) {
         } else null
       }
 
-      dao.applyTaskCompletionAtomically(
+      val insertedEventIds = dao.applyTaskCompletionAtomically(
         taskIdToDelete = taskIdToDelete,
         taskToUpdate = taskToUpdate,
         shopItemToUpdate = updatedShopItem,
@@ -260,16 +324,24 @@ class GamefyRepository(private val dao: GamefyDao) {
         achievementEvents = achEvents,
       )
 
-      val prefix = ((if (isFinished) "✔ Zakończono! " else "") + itemSuffix.trimStart()).trim()
+      val prefix = ((if (isFinished) "Zakończono! " else "") + itemSuffix.trimStart()).trim()
       val newLevel = calculateLevel(finalProfile.exp).level
       val parts = mutableListOf<String>()
-      if (newLevel > oldLevel) parts.add("🎉 Poziom $newLevel!")
+      if (newLevel > oldLevel) parts.add("Poziom $newLevel!")
       if (prefix.isNotEmpty()) parts.add(prefix)
-      parts.add("+${currentTask.expReward} EXP  +${currentTask.coinReward} 🪙")
-      if (gemsGained > 0) parts.add("+$gemsGained 💎")
+      if (streakResult.usedFreezeNow) parts.add("Zamrożenie serii aktywne")
+      parts.add("+${currentTask.expReward} EXP · +${currentTask.coinReward} monet")
+      if (gemsGained > 0) parts.add("+${com.example.data.model.formatGemsLabel(gemsGained)}")
       RewardOutcome(
         toastMessage = parts.joinToString("  "),
         unlockedAchievements = newlyUnlocked,
+        undoSnapshot = TaskActionUndoSnapshot(
+          previousTask = currentTask,
+          previousProfile = profile,
+          previousAttributes = attrsBeforeUpdate,
+          previousShopItem = previousShopItem,
+          insertedActivityEventIds = insertedEventIds,
+        ),
       )
     }
 
@@ -277,55 +349,77 @@ class GamefyRepository(private val dao: GamefyDao) {
     if (!task.isActive) return null
     val subtasks = parseSubtasksJson(task.subtasksJson)
     if (subtasks.isEmpty()) return null
+    val targetBefore = subtasks.find { it.id == subtaskId } ?: return null
+    val justChecked = !targetBefore.isDone
     val updated = subtasks.map { st ->
       if (st.id == subtaskId) st.copy(isDone = !st.isDone) else st
     }
     val updatedTask = task.copy(subtasksJson = toSubtasksJson(updated))
     return if (updated.all { it.isDone }) {
-      completeTask(updatedTask, fromSubtaskChain = true)
+      completeTask(
+        task = updatedTask,
+        fromSubtaskChain = true,
+        completedSubtaskDelta = if (justChecked) 1 else 0,
+      )
     } else {
       dao.updateTask(updatedTask)
+      if (justChecked) {
+        val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+        val (finalProfile, unlocked) = evaluateAndGrantAchievements(
+          profile.copy(subtasksCompletedCount = profile.subtasksCompletedCount + 1)
+        )
+        dao.upsertProfile(finalProfile)
+        logAchievementRewards(unlocked)
+        if (unlocked.isNotEmpty()) {
+          return RewardOutcome(unlockedAchievements = unlocked)
+        }
+      }
       null
     }
   }
 
-  suspend fun skipTask(task: TaskEntity): String {
-    if (!task.isActive) return ""
-    val now = System.currentTimeMillis()
-    val penaltyMode = PenaltyMode.fromCode(task.penaltyModeCode)
-    var message = "Pominięto zadanie."
+  suspend fun skipTask(task: TaskEntity): String = skipTaskWithUndo(task).toastMessage
 
-    var appliedSkipPenalty = 0
-    if (penaltyMode == PenaltyMode.ON_SKIP_ONLY) {
-      val penalty = computePenaltyAmount(task.penaltyMinCoins, task.penaltyMaxCoins)
-      if (penalty > 0) {
-        appliedSkipPenalty = penalty
-        val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
-        dao.upsertProfile(profile.copy(coins = (profile.coins - penalty).coerceAtLeast(0)))
-        message = "Pominięto. Kara −$penalty 🪙"
+  suspend fun skipTaskWithUndo(task: TaskEntity): TaskActionOutcome =
+    completionMutex.withLock {
+      val currentTask = dao.getTaskByIdOnce(task.id) ?: return@withLock TaskActionOutcome()
+      if (!currentTask.isActive) return@withLock TaskActionOutcome()
+      val now = System.currentTimeMillis()
+      val penaltyMode = PenaltyMode.fromCode(currentTask.penaltyModeCode)
+      var message = "Pominięto zadanie."
+
+      var appliedSkipPenalty = 0
+      var previousProfile: PlayerProfileEntity? = null
+      var updatedProfile: PlayerProfileEntity? = null
+      if (penaltyMode == PenaltyMode.ON_SKIP_ONLY) {
+        val penalty = computePenaltyAmount(currentTask.penaltyMinCoins, currentTask.penaltyMaxCoins)
+        if (penalty > 0) {
+          appliedSkipPenalty = penalty
+          val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+          previousProfile = profile
+          updatedProfile = profile.copy(coins = (profile.coins - penalty).coerceAtLeast(0))
+          message = "Pominięto. Kara −$penalty monet"
+        }
       }
-    }
 
-    dao.insertActivityEvent(
-      ActivityEventEntity(
+      val skipEvent = ActivityEventEntity(
         timestamp = now,
         eventType = ActivityEventType.TASK_SKIP,
-        taskId = task.id,
-        taskName = task.name,
-        categoryCode = task.categoryCode,
+        taskId = currentTask.id,
+        taskName = currentTask.name,
+        categoryCode = currentTask.categoryCode,
         onTime = false,
         coinsDelta = -appliedSkipPenalty,
       )
-    )
 
-    val category = TaskCategory.fromCode(task.categoryCode)
-    if (category == TaskCategory.SIDEQUEST) {
-      dao.deleteTaskById(task.id)
-    } else {
-      val (nextStart, nextDue) = advanceCycle(task, now)
-      val resetSubtasks = parseSubtasksJson(task.subtasksJson).map { it.copy(isDone = false) }
-      dao.updateTask(
-        task.copy(
+      val category = TaskCategory.fromCode(currentTask.categoryCode)
+      val taskIdToDelete = if (category == TaskCategory.SIDEQUEST) currentTask.id else null
+      val taskToUpdate = if (category == TaskCategory.SIDEQUEST) {
+        null
+      } else {
+        val (nextStart, nextDue) = advanceCycle(currentTask, now)
+        val resetSubtasks = parseSubtasksJson(currentTask.subtasksJson).map { it.copy(isDone = false) }
+        currentTask.copy(
           startTimestamp = nextStart,
           dueTimestamp = nextDue,
           penaltyDueSnapshot = null,
@@ -333,48 +427,66 @@ class GamefyRepository(private val dao: GamefyDao) {
           lastNotifiedKey = "",
           subtasksJson = toSubtasksJson(resetSubtasks),
         )
+      }
+
+      val eventId = dao.applyTaskSkipOrGiveUpAtomically(
+        taskIdToDelete = taskIdToDelete,
+        taskToUpdate = taskToUpdate,
+        updatedProfile = updatedProfile,
+        activityEvent = skipEvent,
+      )
+
+      TaskActionOutcome(
+        toastMessage = message,
+        undoSnapshot = TaskActionUndoSnapshot(
+          previousTask = currentTask,
+          previousProfile = previousProfile,
+          insertedActivityEventIds = listOf(eventId),
+        ),
       )
     }
-    return message
-  }
 
-  suspend fun giveUpTask(task: TaskEntity): String {
-    if (!task.isActive) return ""
-    val now = System.currentTimeMillis()
-    val (minP, maxP) = resolveGiveUpPenaltyRange(
-      coinReward = task.coinReward,
-      difficultyCode = task.difficultyCode,
-      penaltyModeCode = task.penaltyModeCode,
-      penaltyMinCoins = task.penaltyMinCoins,
-      penaltyMaxCoins = task.penaltyMaxCoins,
-    )
-    val penalty = computePenaltyAmount(minP, maxP)
-    if (penalty > 0) {
-      val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
-      dao.upsertProfile(profile.copy(coins = (profile.coins - penalty).coerceAtLeast(0)))
-    }
+  suspend fun giveUpTask(task: TaskEntity): String = giveUpTaskWithUndo(task).toastMessage
 
-    dao.insertActivityEvent(
-      ActivityEventEntity(
+  suspend fun giveUpTaskWithUndo(task: TaskEntity): TaskActionOutcome =
+    completionMutex.withLock {
+      val currentTask = dao.getTaskByIdOnce(task.id) ?: return@withLock TaskActionOutcome()
+      if (!currentTask.isActive) return@withLock TaskActionOutcome()
+      val now = System.currentTimeMillis()
+      val (minP, maxP) = resolveGiveUpPenaltyRange(
+        coinReward = currentTask.coinReward,
+        difficultyCode = currentTask.difficultyCode,
+        penaltyModeCode = currentTask.penaltyModeCode,
+        penaltyMinCoins = currentTask.penaltyMinCoins,
+        penaltyMaxCoins = currentTask.penaltyMaxCoins,
+      )
+      val penalty = computePenaltyAmount(minP, maxP)
+      var previousProfile: PlayerProfileEntity? = null
+      var updatedProfile: PlayerProfileEntity? = null
+      if (penalty > 0) {
+        val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+        previousProfile = profile
+        updatedProfile = profile.copy(coins = (profile.coins - penalty).coerceAtLeast(0))
+      }
+
+      val giveUpEvent = ActivityEventEntity(
         timestamp = now,
         eventType = ActivityEventType.TASK_SKIP,
-        taskId = task.id,
-        taskName = task.name,
-        categoryCode = task.categoryCode,
+        taskId = currentTask.id,
+        taskName = currentTask.name,
+        categoryCode = currentTask.categoryCode,
         onTime = false,
         coinsDelta = -penalty,
       )
-    )
 
-    val category = TaskCategory.fromCode(task.categoryCode)
-    return if (category == TaskCategory.SIDEQUEST) {
-      dao.deleteTaskById(task.id)
-      if (penalty > 0) "Poddano zadanie. Kara −$penalty 🪙" else "Poddano zadanie."
-    } else {
-      val nextDue = nextCycleTimestamp(now, category, task.repeatInterval)
-      val resetSubtasks = parseSubtasksJson(task.subtasksJson).map { it.copy(isDone = false) }
-      dao.updateTask(
-        task.copy(
+      val category = TaskCategory.fromCode(currentTask.categoryCode)
+      val taskIdToDelete = if (category == TaskCategory.SIDEQUEST) currentTask.id else null
+      val taskToUpdate = if (category == TaskCategory.SIDEQUEST) {
+        null
+      } else {
+        val nextDue = nextCycleTimestamp(now, category, currentTask.repeatInterval)
+        val resetSubtasks = parseSubtasksJson(currentTask.subtasksJson).map { it.copy(isDone = false) }
+        currentTask.copy(
           startTimestamp = now,
           dueTimestamp = nextDue,
           penaltyDueSnapshot = null,
@@ -382,14 +494,46 @@ class GamefyRepository(private val dao: GamefyDao) {
           lastNotifiedKey = "",
           subtasksJson = toSubtasksJson(resetSubtasks),
         )
-      )
-      if (penalty > 0) {
-        "Poddano zadanie. Kara −$penalty 🪙 · Nowy czas do terminu"
-      } else {
-        "Poddano zadanie · Nowy czas do terminu"
       }
+
+      val eventId = dao.applyTaskSkipOrGiveUpAtomically(
+        taskIdToDelete = taskIdToDelete,
+        taskToUpdate = taskToUpdate,
+        updatedProfile = updatedProfile,
+        activityEvent = giveUpEvent,
+      )
+
+      val message = if (category == TaskCategory.SIDEQUEST) {
+        if (penalty > 0) "Poddano zadanie. Kara −$penalty monet" else "Poddano zadanie."
+      } else {
+        if (penalty > 0) {
+          "Poddano zadanie. Kara −$penalty monet · Nowy czas do terminu"
+        } else {
+          "Poddano zadanie · Nowy czas do terminu"
+        }
+      }
+
+      TaskActionOutcome(
+        toastMessage = message,
+        undoSnapshot = TaskActionUndoSnapshot(
+          previousTask = currentTask,
+          previousProfile = previousProfile,
+          insertedActivityEventIds = listOf(eventId),
+        ),
+      )
     }
-  }
+
+  suspend fun undoTaskAction(snapshot: TaskActionUndoSnapshot): Boolean =
+    completionMutex.withLock {
+      dao.restoreTaskActionSnapshotAtomically(
+        previousTask = snapshot.previousTask,
+        previousProfile = snapshot.previousProfile,
+        previousAttributes = snapshot.previousAttributes,
+        previousShopItem = snapshot.previousShopItem,
+        insertedActivityEventIds = snapshot.insertedActivityEventIds,
+      )
+      true
+    }
 
   private fun advanceCycle(task: TaskEntity, now: Long): Pair<Long, Long?> {
     val category = TaskCategory.fromCode(task.categoryCode)
@@ -403,7 +547,10 @@ class GamefyRepository(private val dao: GamefyDao) {
     }
   }
 
-  suspend fun completeFocusSession(totalSeconds: Int): RewardOutcome {
+  suspend fun completeFocusSession(
+    totalSeconds: Int,
+    completedFullPomodoroCycle: Boolean = false,
+  ): RewardOutcome {
     val now = System.currentTimeMillis()
     val minutes = max(1, totalSeconds / 60)
     val expGain = minutes
@@ -424,13 +571,10 @@ class GamefyRepository(private val dao: GamefyDao) {
       coinGain = coinGain,
       attributeIds = attrIds,
       incrementPomosDone = true,
-      prefix = "⏱️ Sesja ukończona!",
+      focusMinutesAdded = minutes,
+      fullPomodoroCycleCompleted = completedFullPomodoroCycle,
+      prefix = "Sesja ukończona!",
     )
-  }
-
-  private fun isNightActionNow(): Boolean {
-    val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-    return hour >= 23 || hour < 4
   }
 
   private suspend fun awardRewards(
@@ -440,6 +584,8 @@ class GamefyRepository(private val dao: GamefyDao) {
     attributeIds: List<Long>,
     incrementTasksDone: Boolean = false,
     incrementPomosDone: Boolean = false,
+    focusMinutesAdded: Int = 0,
+    fullPomodoroCycleCompleted: Boolean = false,
     markSubtaskChain: Boolean = false,
     prefix: String = "",
   ): RewardOutcome {
@@ -464,14 +610,21 @@ class GamefyRepository(private val dao: GamefyDao) {
     var newStreak = profile.currentStreak
     var newBestStreak = profile.bestStreak
     var newLastTaskDay = profile.lastTaskEpochDay
+    var newFreezeWeekKey = profile.streakFreezeUsedWeekKey
+    var newComeback = profile.comebackAfterBreak
     if (incrementTasksDone) {
       val today = localEpochDay()
-      newStreak = when (profile.lastTaskEpochDay) {
-        today -> max(1, profile.currentStreak)
-        today - 1L -> profile.currentStreak + 1
-        else -> 1
-      }
-      newBestStreak = max(profile.bestStreak, newStreak)
+      val streakRes = computeNextStreakWithFreeze(
+        currentStreak = profile.currentStreak,
+        bestStreak = profile.bestStreak,
+        lastTaskEpochDay = profile.lastTaskEpochDay,
+        freezeUsedWeekKey = profile.streakFreezeUsedWeekKey,
+        todayEpochDay = today,
+      )
+      newStreak = streakRes.newStreak
+      newBestStreak = streakRes.newBestStreak
+      newFreezeWeekKey = streakRes.freezeUsedWeekKey
+      newComeback = profile.comebackAfterBreak || streakRes.isComebackAfterBreak
       newLastTaskDay = today
     }
 
@@ -481,11 +634,14 @@ class GamefyRepository(private val dao: GamefyDao) {
       gems = profile.gems + gemsGained,
       tasksDone = profile.tasksDone + if (incrementTasksDone) 1 else 0,
       pomosDone = profile.pomosDone + if (incrementPomosDone) 1 else 0,
+      totalFocusMinutes = profile.totalFocusMinutes + focusMinutesAdded.coerceAtLeast(0),
+      fullPomodoroCycles = profile.fullPomodoroCycles + if (fullPomodoroCycleCompleted) 1 else 0,
       coinsEarned = profile.coinsEarned + coinGain,
       currentStreak = newStreak,
       bestStreak = newBestStreak,
       lastTaskEpochDay = newLastTaskDay,
-      completedNightAction = profile.completedNightAction || isNightActionNow(),
+      streakFreezeUsedWeekKey = newFreezeWeekKey,
+      comebackAfterBreak = newComeback,
       completedSubtaskChain = profile.completedSubtaskChain || markSubtaskChain,
     )
 
@@ -495,36 +651,38 @@ class GamefyRepository(private val dao: GamefyDao) {
 
     val newLevel = calculateLevel(finalProfile.exp).level
     val parts = mutableListOf<String>()
-    if (newLevel > oldLevel) parts.add("🎉 Poziom $newLevel!")
+    if (newLevel > oldLevel) parts.add("Poziom $newLevel!")
     if (prefix.isNotEmpty()) parts.add(prefix)
-    parts.add("+$expGain EXP  +$coinGain 🪙")
-    if (gemsGained > 0) parts.add("+$gemsGained 💎")
+    parts.add("+$expGain EXP · +$coinGain monet")
+    if (gemsGained > 0) parts.add("+${com.example.data.model.formatGemsLabel(gemsGained)}")
     return RewardOutcome(
       toastMessage = parts.joinToString("  "),
       unlockedAchievements = newlyUnlocked,
     )
   }
 
-  private fun evaluateAndGrantAchievements(
+  private suspend fun evaluateAndGrantAchievements(
     baseProfile: PlayerProfileEntity,
+    tasksOverride: List<TaskEntity>? = null,
+    attributesOverride: List<AttributeEntity>? = null,
+    extraEvents: List<ActivityEventEntity> = emptyList(),
+    nowMillis: Long = System.currentTimeMillis(),
   ): Pair<PlayerProfileEntity, List<AchievementDefinition>> {
+    val tasks = tasksOverride ?: dao.getTasksOnce()
+    val attributes = attributesOverride ?: dao.getAttributesOnce()
+    val events = dao.getActivityEventsOnce() + extraEvents
+
     var current = baseProfile
     val unlockedSet = parseStringCsv(current.unlockedAchievementsCsv).toMutableSet()
     val newlyUnlocked = mutableListOf<AchievementDefinition>()
 
-    repeat(2) {
-      val stats = PlayerStatsSnapshot(
-        exp = current.exp,
-        tasksDone = current.tasksDone,
-        pomosDone = current.pomosDone,
-        coinsEarned = current.coinsEarned,
-        itemsBought = current.itemsBought,
-        currentStreak = current.currentStreak,
-        bestStreak = current.bestStreak,
-        customTasksCreated = current.customTasksCreated,
-        boughtMostExpensive = current.boughtMostExpensive,
-        completedNightAction = current.completedNightAction,
-        completedSubtaskChain = current.completedSubtaskChain,
+    repeat(3) {
+      val stats = buildPlayerStatsSnapshot(
+        profile = current,
+        tasks = tasks,
+        attributes = attributes,
+        events = events,
+        nowMillis = nowMillis,
       )
       var bonusExp = 0
       var bonusCoins = 0
@@ -658,13 +816,29 @@ class GamefyRepository(private val dao: GamefyDao) {
       RewardOutcome(toastMessage = "Zapisano zadanie", unlockedAchievements = unlocked)
     } else {
       dao.updateTask(task)
-      RewardOutcome(toastMessage = "Zapisano zadanie")
+      val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+      val (finalProfile, unlocked) = evaluateAndGrantAchievements(profile)
+      if (unlocked.isNotEmpty()) {
+        dao.upsertProfile(finalProfile)
+        logAchievementRewards(unlocked)
+      }
+      RewardOutcome(toastMessage = "Zapisano zadanie", unlockedAchievements = unlocked)
     }
   }
 
   suspend fun deleteTask(taskId: Long) {
-    dao.deleteTaskById(taskId)
+    deleteTaskWithUndo(taskId)
   }
+
+  suspend fun deleteTaskWithUndo(taskId: Long): TaskActionOutcome =
+    completionMutex.withLock {
+      val currentTask = dao.getTaskByIdOnce(taskId) ?: return@withLock TaskActionOutcome()
+      dao.deleteTaskById(taskId)
+      TaskActionOutcome(
+        toastMessage = "Usunięto zadanie",
+        undoSnapshot = TaskActionUndoSnapshot(previousTask = currentTask),
+      )
+    }
 
   suspend fun applyBulkUpdate(
     taskIds: Set<Long>,
@@ -672,8 +846,16 @@ class GamefyRepository(private val dao: GamefyDao) {
     interval: Int,
     folderId: Long?,
     reminder: ReminderMode?,
-  ): Int {
-    if (taskIds.isEmpty()) return 0
+  ): Int = applyBulkUpdateWithAchievements(taskIds, category, interval, folderId, reminder).first
+
+  suspend fun applyBulkUpdateWithAchievements(
+    taskIds: Set<Long>,
+    category: TaskCategory?,
+    interval: Int,
+    folderId: Long?,
+    reminder: ReminderMode?,
+  ): Pair<Int, List<AchievementDefinition>> {
+    if (taskIds.isEmpty()) return 0 to emptyList()
     val now = System.currentTimeMillis()
     val allTasks = dao.getTasksOnce()
     var count = 0
@@ -703,7 +885,16 @@ class GamefyRepository(private val dao: GamefyDao) {
       dao.updateTask(updated)
       count++
     }
-    return count
+    if (count > 0) {
+      val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+      val (finalProfile, unlocked) = evaluateAndGrantAchievements(
+        profile.copy(bulkUpdatesDone = profile.bulkUpdatesDone + 1)
+      )
+      dao.upsertProfile(finalProfile)
+      logAchievementRewards(unlocked, now)
+      return count to unlocked
+    }
+    return count to emptyList()
   }
 
   suspend fun buyShopItem(item: ShopItemEntity): RewardOutcome {
@@ -749,13 +940,23 @@ class GamefyRepository(private val dao: GamefyDao) {
       )
     )
 
+    val remainingGems = profile.gems - item.gemPrice
+    val spentAllGemsNow = item.gemPrice > 0 && remainingGems == 0
+    val sevenDaysAgo = now - 7L * MILLIS_PER_DAY
+    val recentTasksDone = dao.getActivityEventsOnce().count {
+      it.eventType == ActivityEventType.TASK_DONE && it.timestamp >= sevenDaysAgo
+    }
+    val isWellEarned = recentTasksDone >= 7
+
     val updatedProfile = profile.copy(
       coins = profile.coins - item.coinPrice,
-      gems = profile.gems - item.gemPrice,
+      gems = remainingGems,
       itemsBought = profile.itemsBought + 1,
       boughtMostExpensive = profile.boughtMostExpensive || isMostExpensive,
+      spentAllGems = profile.spentAllGems || spentAllGemsNow,
+      wellEarnedRewardBought = profile.wellEarnedRewardBought || isWellEarned,
     )
-    val (finalProfile, newlyUnlocked) = evaluateAndGrantAchievements(updatedProfile)
+    val (finalProfile, newlyUnlocked) = evaluateAndGrantAchievements(updatedProfile, nowMillis = now)
     dao.upsertProfile(finalProfile)
     logAchievementRewards(newlyUnlocked, now)
     return RewardOutcome(
@@ -808,16 +1009,27 @@ class GamefyRepository(private val dao: GamefyDao) {
   suspend fun updateAttribute(attr: AttributeEntity) = dao.updateAttribute(attr)
   suspend fun deleteAttribute(id: Long) = dao.deleteAttributeById(id)
 
-  suspend fun addFolder(icon: String, name: String, colorHex: String = "") {
+  suspend fun addFolder(
+    icon: String,
+    name: String,
+    colorHex: String = "",
+  ): List<AchievementDefinition> {
     val cleanName = name.trim()
     val resolvedHex = normalizeColorHex(colorHex).ifEmpty { defaultColorHexForFolder(cleanName) }
     dao.insertFolder(
       FolderEntity(
-        icon = icon.ifBlank { "📁" },
+        icon = icon.ifBlank { "folder" },
         name = cleanName,
         colorHex = resolvedHex,
       )
     )
+    val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+    val (finalProfile, unlocked) = evaluateAndGrantAchievements(
+      profile.copy(orgItemsCreated = profile.orgItemsCreated + 1)
+    )
+    dao.upsertProfile(finalProfile)
+    logAchievementRewards(unlocked)
+    return unlocked
   }
 
   suspend fun updateFolder(folder: FolderEntity) {
@@ -828,11 +1040,26 @@ class GamefyRepository(private val dao: GamefyDao) {
   }
   suspend fun deleteFolder(id: Long) = dao.deleteFolderById(id)
 
-  suspend fun getOrCreateTag(rawName: String): TagEntity {
+  suspend fun getOrCreateTag(
+    rawName: String,
+    trackUserCreation: Boolean = true,
+    onAchievementsUnlocked: (List<AchievementDefinition>) -> Unit = {},
+  ): TagEntity {
     val clean = rawName.trim().removePrefix("#")
     val existing = dao.getTagsOnce().find { it.name.equals(clean, ignoreCase = true) }
     if (existing != null) return existing
     val newId = dao.insertTag(TagEntity(name = clean))
+    if (trackUserCreation) {
+      val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+      val (finalProfile, unlocked) = evaluateAndGrantAchievements(
+        profile.copy(orgItemsCreated = profile.orgItemsCreated + 1)
+      )
+      dao.upsertProfile(finalProfile)
+      logAchievementRewards(unlocked)
+      if (unlocked.isNotEmpty()) {
+        onAchievementsUnlocked(unlocked)
+      }
+    }
     return TagEntity(id = newId, name = clean)
   }
 
@@ -941,7 +1168,7 @@ class GamefyRepository(private val dao: GamefyDao) {
         colorHex = defaultFolderColor,
       )
 
-    val tagIds = template.tags.map { rawTag -> getOrCreateTag(rawTag).id }
+    val tagIds = template.tags.map { rawTag -> getOrCreateTag(rawTag, trackUserCreation = false).id }
     val allAttrs = dao.getAttributesOnce()
     val linkedAttrIds = template.attributeWeights.keys.mapNotNull { attrName ->
       allAttrs.find { it.name.equals(attrName, ignoreCase = true) }?.id
@@ -1083,8 +1310,15 @@ class GamefyRepository(private val dao: GamefyDao) {
     nowMillis: Long = System.currentTimeMillis(),
     catalog: List<RandomSideQuestTemplate> = RANDOM_SIDE_QUEST_TEMPLATES,
     random: Random = Random.Default,
-  ): Int = randomSideQuestMutex.withLock {
-    if (questIds.isEmpty()) return@withLock 0
+  ): Int = acceptRandomSideQuestsWithAchievements(questIds, nowMillis, catalog, random).first
+
+  suspend fun acceptRandomSideQuestsWithAchievements(
+    questIds: List<String>,
+    nowMillis: Long = System.currentTimeMillis(),
+    catalog: List<RandomSideQuestTemplate> = RANDOM_SIDE_QUEST_TEMPLATES,
+    random: Random = Random.Default,
+  ): Pair<Int, List<AchievementDefinition>> = randomSideQuestMutex.withLock {
+    if (questIds.isEmpty()) return@withLock 0 to emptyList()
 
     var profile = dao.getProfileOnce() ?: PlayerProfileEntity()
     val todayKey = localCalendarDayKey(nowMillis)
@@ -1108,7 +1342,7 @@ class GamefyRepository(private val dao: GamefyDao) {
     val usedCount = max(profile.rsqAcceptedCountToday, alreadyAcceptedSet.size)
       .coerceAtLeast(0)
     val remainingSlots = (RANDOM_SIDE_QUEST_DAILY_LIMIT - usedCount).coerceAtLeast(0)
-    if (remainingSlots <= 0) return@withLock 0
+    if (remainingSlots <= 0) return@withLock 0 to emptyList()
 
     val catalogById = catalog.associateBy { it.id }
     val toAccept = questIds
@@ -1118,24 +1352,26 @@ class GamefyRepository(private val dao: GamefyDao) {
       .mapNotNull { catalogById[it] }
       .take(remainingSlots)
 
-    if (toAccept.isEmpty()) return@withLock 0
+    if (toAccept.isEmpty()) return@withLock 0 to emptyList()
 
     val folders = dao.getFoldersOnce()
-    val sideQuestFolderName = OnboardingArea.SIDE_QUESTS.folderName
+    val sideQuestFolderName = "Poboczne"
     val sideQuestFolderColor = defaultColorHexForFolder(sideQuestFolderName)
-    val sideQuestFolder = folders.find { it.name.equals(sideQuestFolderName, ignoreCase = true) }
-      ?: FolderEntity(
-        id = dao.insertFolder(
-          FolderEntity(
-            icon = OnboardingArea.SIDE_QUESTS.icon,
-            name = sideQuestFolderName,
-            colorHex = sideQuestFolderColor,
-          )
-        ),
-        icon = OnboardingArea.SIDE_QUESTS.icon,
-        name = sideQuestFolderName,
-        colorHex = sideQuestFolderColor,
-      )
+    val sideQuestFolder = folders.find {
+      it.name.equals(sideQuestFolderName, ignoreCase = true) ||
+        it.name.equals("Side questy", ignoreCase = true)
+    } ?: FolderEntity(
+      id = dao.insertFolder(
+        FolderEntity(
+          icon = "sword",
+          name = sideQuestFolderName,
+          colorHex = sideQuestFolderColor,
+        )
+      ),
+      icon = "sword",
+      name = sideQuestFolderName,
+      colorHex = sideQuestFolderColor,
+    )
 
     val allAttrs = dao.getAttributesOnce()
     val newlyAcceptedIds = mutableListOf<String>()
@@ -1147,7 +1383,7 @@ class GamefyRepository(private val dao: GamefyDao) {
         continue
       }
 
-      val tagIds = template.tags.map { rawTag -> getOrCreateTag(rawTag).id }
+      val tagIds = template.tags.map { rawTag -> getOrCreateTag(rawTag, trackUserCreation = false).id }
       val linkedAttrIds = template.attributeWeights.keys.mapNotNull { attrName ->
         allAttrs.find { it.name.equals(attrName, ignoreCase = true) }?.id
       }
@@ -1185,19 +1421,28 @@ class GamefyRepository(private val dao: GamefyDao) {
       newlyAcceptedIds.add(template.id)
     }
 
+    var unlockedAchievements: List<AchievementDefinition> = emptyList()
     if (newlyAcceptedIds.isNotEmpty()) {
       val updatedAcceptedSet = alreadyAcceptedSet + newlyAcceptedIds
       val updatedCount = (usedCount + newlyAcceptedIds.size).coerceAtMost(RANDOM_SIDE_QUEST_DAILY_LIMIT)
-      dao.upsertProfile(
-        profile.copy(
-          rsqBoardDayKey = todayKey,
-          rsqAcceptedIdsCsv = toStringCsv(updatedAcceptedSet),
-          rsqAcceptedCountToday = updatedCount,
-        )
+      val hitDailyFullBoard = updatedCount >= RANDOM_SIDE_QUEST_DAILY_LIMIT
+      val updatedProfile = profile.copy(
+        rsqBoardDayKey = todayKey,
+        rsqAcceptedIdsCsv = toStringCsv(updatedAcceptedSet),
+        rsqAcceptedCountToday = updatedCount,
+        fullAdventureBoardDay = profile.fullAdventureBoardDay || hitDailyFullBoard,
       )
+      if (hitDailyFullBoard) {
+        val (finalProfile, unlocked) = evaluateAndGrantAchievements(updatedProfile, nowMillis = nowMillis)
+        dao.upsertProfile(finalProfile)
+        logAchievementRewards(unlocked, nowMillis)
+        unlockedAchievements = unlocked
+      } else {
+        dao.upsertProfile(updatedProfile)
+      }
     }
 
-    newlyAcceptedIds.size
+    newlyAcceptedIds.size to unlockedAchievements
   }
 
   suspend fun checkAndPrepareWeeklyBackupReminder(
@@ -1205,6 +1450,7 @@ class GamefyRepository(private val dao: GamefyDao) {
   ): Boolean {
     val profile = dao.getProfileOnce() ?: return false
     if (!profile.onboardingCompleted) return false
+    if (profile.backupReminderSnoozeUntilTimestamp > nowMillis) return false
     if (profile.lastBackupReminderTimestamp <= 0L) {
       dao.upsertProfile(profile.copy(lastBackupReminderTimestamp = nowMillis))
       return false
@@ -1219,8 +1465,38 @@ class GamefyRepository(private val dao: GamefyDao) {
     dao.upsertProfile(profile.copy(lastBackupReminderTimestamp = nowMillis))
   }
 
+  suspend fun snoozeBackupReminderFor30Days(
+    nowMillis: Long = System.currentTimeMillis(),
+  ) {
+    val profile = dao.getProfileOnce() ?: return
+    dao.upsertProfile(
+      profile.copy(
+        lastBackupReminderTimestamp = nowMillis,
+        backupReminderSnoozeUntilTimestamp = nowMillis + BACKUP_REMINDER_SNOOZE_30_DAYS_MS,
+      )
+    )
+  }
+
+  suspend fun recordBackupExportCompleted(
+    nowMillis: Long = System.currentTimeMillis(),
+  ): List<AchievementDefinition> {
+    val profile = dao.getProfileOnce() ?: return emptyList()
+    val updatedMonths = parseStringCsv(profile.backupMonthsCsv) + yearMonthKey(nowMillis)
+    val updatedProfile = profile.copy(
+      lastBackupExportTimestamp = nowMillis,
+      lastBackupReminderTimestamp = nowMillis,
+      backupReminderSnoozeUntilTimestamp = 0L,
+      backupMonthsCsv = toStringCsv(updatedMonths),
+    )
+    val (finalProfile, unlocked) = evaluateAndGrantAchievements(updatedProfile, nowMillis = nowMillis)
+    dao.upsertProfile(finalProfile)
+    logAchievementRewards(unlocked, nowMillis)
+    return unlocked
+  }
+
   companion object {
     const val WEEKLY_BACKUP_REMINDER_INTERVAL_MS: Long = 7L * MILLIS_PER_DAY
+    const val BACKUP_REMINDER_SNOOZE_30_DAYS_MS: Long = 30L * MILLIS_PER_DAY
   }
 
   suspend fun checkDueReminders(nowMillis: Long = System.currentTimeMillis()): List<Pair<Long, String>> {
@@ -1260,7 +1536,7 @@ class GamefyRepository(private val dao: GamefyDao) {
 
         if (chosenKey != null && task.lastNotifiedKey != chosenKey) {
           val text = when {
-            due != null && remaining < 0L -> "Spóźnione (${formatDurationShort(remaining)}): ${task.name}"
+            due != null && remaining < 0L -> "Po terminie (${formatDurationShort(remaining)}): ${task.name}"
             due != null -> "Termin za ${formatDurationShort(remaining)}: ${task.name}"
             else -> "Zadanie na dziś: ${task.name}"
           }
@@ -1316,7 +1592,7 @@ class GamefyRepository(private val dao: GamefyDao) {
 
         if (chosenKey != null && task.lastNotifiedKey != chosenKey) {
           val text = if (remaining < 0L) {
-            "Spóźnione (${formatDurationShort(remaining)}): ${task.name}"
+            "Po terminie (${formatDurationShort(remaining)}): ${task.name}"
           } else {
             "Termin za ${formatDurationShort(remaining)}: ${task.name}"
           }
@@ -1434,9 +1710,29 @@ class GamefyRepository(private val dao: GamefyDao) {
           put("rsqAcceptedIdsCsv", profile.rsqAcceptedIdsCsv)
           put("rsqAcceptedCountToday", profile.rsqAcceptedCountToday)
           put("lastBackupReminderTimestamp", profile.lastBackupReminderTimestamp)
+          put("lastBackupExportTimestamp", profile.lastBackupExportTimestamp)
+          put("backupReminderSnoozeUntilTimestamp", profile.backupReminderSnoozeUntilTimestamp)
           put("fontSizeCode", profile.fontSizeCode)
           put("fontFamilyCode", profile.fontFamilyCode)
           put("wordSpacingCode", profile.wordSpacingCode)
+          put("streakFreezeUsedWeekKey", profile.streakFreezeUsedWeekKey)
+          put("comebackAfterBreak", profile.comebackAfterBreak)
+          put("currentOnTimeStreak", profile.currentOnTimeStreak)
+          put("bestOnTimeStreak", profile.bestOnTimeStreak)
+          put("onTimeTasksDone", profile.onTimeTasksDone)
+          put("totalFocusMinutes", profile.totalFocusMinutes)
+          put("fullPomodoroCycles", profile.fullPomodoroCycles)
+          put("spentAllGems", profile.spentAllGems)
+          put("wellEarnedRewardBought", profile.wellEarnedRewardBought)
+          put("sideQuestsCompleted", profile.sideQuestsCompleted)
+          put("fullAdventureBoardDay", profile.fullAdventureBoardDay)
+          put("subtasksCompletedCount", profile.subtasksCompletedCount)
+          put("orgItemsCreated", profile.orgItemsCreated)
+          put("bulkUpdatesDone", profile.bulkUpdatesDone)
+          put("backupMonthsCsv", profile.backupMonthsCsv)
+          put("completedLastMinute", profile.completedLastMinute)
+          put("completedNoLettersTask", profile.completedNoLettersTask)
+          put("completedSmallTask", profile.completedSmallTask)
         },
       )
       put(
@@ -1617,9 +1913,29 @@ class GamefyRepository(private val dao: GamefyDao) {
         rsqAcceptedIdsCsv = pObj.optString("rsqAcceptedIdsCsv", ""),
         rsqAcceptedCountToday = pObj.optInt("rsqAcceptedCountToday", 0),
         lastBackupReminderTimestamp = pObj.optLong("lastBackupReminderTimestamp", 0L),
+        lastBackupExportTimestamp = pObj.optLong("lastBackupExportTimestamp", 0L),
+        backupReminderSnoozeUntilTimestamp = pObj.optLong("backupReminderSnoozeUntilTimestamp", 0L),
         fontSizeCode = pObj.optString("fontSizeCode", AppFontSize.DEFAULT.code),
         fontFamilyCode = pObj.optString("fontFamilyCode", AppFontFamilyOption.DEFAULT.code),
         wordSpacingCode = pObj.optString("wordSpacingCode", AppWordSpacing.STANDARD.code),
+        streakFreezeUsedWeekKey = pObj.optInt("streakFreezeUsedWeekKey", 0),
+        comebackAfterBreak = pObj.optBoolean("comebackAfterBreak", false),
+        currentOnTimeStreak = pObj.optInt("currentOnTimeStreak", 0),
+        bestOnTimeStreak = pObj.optInt("bestOnTimeStreak", 0),
+        onTimeTasksDone = pObj.optInt("onTimeTasksDone", 0),
+        totalFocusMinutes = pObj.optInt("totalFocusMinutes", 0),
+        fullPomodoroCycles = pObj.optInt("fullPomodoroCycles", 0),
+        spentAllGems = pObj.optBoolean("spentAllGems", false),
+        wellEarnedRewardBought = pObj.optBoolean("wellEarnedRewardBought", false),
+        sideQuestsCompleted = pObj.optInt("sideQuestsCompleted", 0),
+        fullAdventureBoardDay = pObj.optBoolean("fullAdventureBoardDay", false),
+        subtasksCompletedCount = pObj.optInt("subtasksCompletedCount", 0),
+        orgItemsCreated = pObj.optInt("orgItemsCreated", 0),
+        bulkUpdatesDone = pObj.optInt("bulkUpdatesDone", 0),
+        backupMonthsCsv = pObj.optString("backupMonthsCsv", ""),
+        completedLastMinute = pObj.optBoolean("completedLastMinute", false),
+        completedNoLettersTask = pObj.optBoolean("completedNoLettersTask", false),
+        completedSmallTask = pObj.optBoolean("completedSmallTask", false),
       )
 
       val attrsArr = root.getJSONArray("attributes")
@@ -1642,7 +1958,7 @@ class GamefyRepository(private val dao: GamefyDao) {
           .ifEmpty { defaultColorHexForFolder(name, id) }
         FolderEntity(
           id = id,
-          icon = o.optString("icon", "📁"),
+          icon = o.optString("icon", "folder"),
           name = name,
           colorHex = colorHex,
         )
@@ -1699,7 +2015,7 @@ class GamefyRepository(private val dao: GamefyDao) {
         val o = shopArr.getJSONObject(idx)
         ShopItemEntity(
           id = o.getLong("id"),
-          icon = o.optString("icon", "🎁"),
+          icon = o.optString("icon", "gift"),
           name = o.getString("name"),
           coinPrice = o.optInt("coinPrice", 50),
           gemPrice = o.optInt("gemPrice", 0),

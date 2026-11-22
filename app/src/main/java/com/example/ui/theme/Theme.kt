@@ -18,6 +18,8 @@ import com.example.data.model.AppWordSpacing
 
 val LocalGamefyPalette = staticCompositionLocalOf { paletteForTheme(AppThemeId.VIOLET) }
 
+const val BASE_FONT_SCALE_MULTIPLIER = 1.15f
+
 @Composable
 fun GamefyTheme(
   themeId: AppThemeId,
@@ -36,7 +38,8 @@ fun GamefyTheme(
   val scaledDensity = remember(baseDensity, fontSize) {
     Density(
       density = baseDensity.density,
-      fontScale = (baseDensity.fontScale * fontSize.scale).coerceIn(0.75f, 2.2f),
+      fontScale = (baseDensity.fontScale * BASE_FONT_SCALE_MULTIPLIER * fontSize.scale)
+        .coerceIn(0.85f, 2.5f),
     )
   }
 

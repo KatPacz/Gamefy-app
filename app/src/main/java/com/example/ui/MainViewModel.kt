@@ -33,6 +33,7 @@ import com.example.data.model.TaskCategory
 import com.example.data.model.localCalendarDayKey
 import com.example.data.repository.GamefyRepository
 import com.example.data.repository.RewardOutcome
+import com.example.data.repository.TaskActionUndoSnapshot
 import com.example.notifications.NotificationHelper
 import com.example.notifications.ReminderScheduler
 import kotlinx.coroutines.delay
@@ -50,7 +51,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 enum class MainTimerMode(val label: String) {
-  POMODORO("Tryb Pomodoro"),
+  POMODORO("Pomodoro"),
   TIMER("Timer"),
 }
 
@@ -85,6 +86,16 @@ data class TaskInlineTimerState(
   val progressFraction: Float
     get() = if (totalSeconds <= 0) 0f else (1f - remainingSeconds.toFloat() / totalSeconds.toFloat()).coerceIn(0f, 1f)
 }
+
+const val UNDO_SNACKBAR_DURATION_MS = 6_000L
+
+data class UiSnackbarEvent(
+  val message: String,
+  val actionLabel: String? = null,
+  val durationMillis: Long? = null,
+  val undoSnapshot: TaskActionUndoSnapshot? = null,
+  val unlockedAchievementIdsToRevert: Set<String> = emptySet(),
+)
 
 data class GamefyUiState(
   val profile: PlayerProfileEntity = PlayerProfileEntity(),
@@ -144,8 +155,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   private val _taskTimer = MutableStateFlow(TaskInlineTimerState())
   val taskTimer: StateFlow<TaskInlineTimerState> = _taskTimer.asStateFlow()
 
-  private val _toastEvents = MutableSharedFlow<String>(extraBufferCapacity = 8)
-  val toastEvents: SharedFlow<String> = _toastEvents.asSharedFlow()
+  private val _snackbarEvents = MutableSharedFlow<UiSnackbarEvent>(extraBufferCapacity = 8)
+  val snackbarEvents: SharedFlow<UiSnackbarEvent> = _snackbarEvents.asSharedFlow()
 
   private val _achievementEvents = MutableSharedFlow<AchievementDefinition>(extraBufferCapacity = 16)
   val achievementEvents: SharedFlow<AchievementDefinition> = _achievementEvents.asSharedFlow()
@@ -160,15 +171,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   val showWeeklyBackupReminder: StateFlow<Boolean> = _showWeeklyBackupReminder.asStateFlow()
 
   private var pendingRandomQuestDayKey: Long = -1L
+  private var activeUndoSnapshot: TaskActionUndoSnapshot? = null
+
+  private fun emitToast(message: String) {
+    if (message.isBlank()) return
+    _snackbarEvents.tryEmit(UiSnackbarEvent(message = message))
+  }
+
+  private fun emitUndoableToast(
+    message: String,
+    undoSnapshot: TaskActionUndoSnapshot?,
+    unlockedAchievementIds: Set<String> = emptySet(),
+  ) {
+    if (message.isBlank()) return
+    if (undoSnapshot != null) {
+      activeUndoSnapshot = undoSnapshot
+      _snackbarEvents.tryEmit(
+        UiSnackbarEvent(
+          message = message,
+          actionLabel = "Cofnij",
+          durationMillis = UNDO_SNACKBAR_DURATION_MS,
+          undoSnapshot = undoSnapshot,
+          unlockedAchievementIdsToRevert = unlockedAchievementIds,
+        ),
+      )
+    } else {
+      emitToast(message)
+    }
+  }
+
+  private fun emitUnlockedAchievements(achievements: List<AchievementDefinition>) {
+    achievements.forEach { ach ->
+      _achievementEvents.tryEmit(ach)
+    }
+  }
 
   private fun emitOutcome(outcome: RewardOutcome?) {
     if (outcome == null) return
+    val unlockedIds = outcome.unlockedAchievements.map { it.id }.toSet()
     if (outcome.toastMessage.isNotBlank()) {
-      _toastEvents.tryEmit(outcome.toastMessage)
+      emitUndoableToast(
+        message = outcome.toastMessage,
+        undoSnapshot = outcome.undoSnapshot,
+        unlockedAchievementIds = unlockedIds,
+      )
     }
-    outcome.unlockedAchievements.forEach { ach ->
-      _achievementEvents.tryEmit(ach)
-    }
+    emitUnlockedAchievements(outcome.unlockedAchievements)
   }
 
   private var mainTimerTargetElapsedMs: Long = 0L
@@ -227,7 +275,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   private suspend fun runPeriodicChecks() {
     val penalty = repository.evaluatePenalties()
     if (penalty > 0) {
-      _toastEvents.tryEmit("💸 Kara za spóźnienie: −$penalty 🪙")
+      emitToast("Kara za przekroczenie terminu: −$penalty monet")
     }
     val alerts = repository.checkDueReminders()
     alerts.forEach { (taskId, message) ->
@@ -238,7 +286,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         title = "Gamefy – Przypomnienie",
         body = message,
       )
-      _toastEvents.tryEmit("🔔 $message")
+      emitToast(message)
     }
   }
 
@@ -340,10 +388,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
           isRunning = false,
         )
       }
-      _toastEvents.tryEmit("Przełączono na: ${nextPhase.label}")
+      emitToast("Przełączono na: ${nextPhase.label}")
     } else {
       resetMainTimer()
-      _toastEvents.tryEmit("Zatrzymano i zresetowano timer")
+      emitToast("Zatrzymano i zresetowano timer")
     }
   }
 
@@ -353,10 +401,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     if (cur.mode == MainTimerMode.POMODORO) {
       if (cur.pomodoroPhase == PomodoroPhase.FOCUS) {
-        val outcome = repository.completeFocusSession(cur.totalSeconds)
         val newFocusCount = cur.completedFocusCount + 1
         val nextPhase =
           if (newFocusCount % 4 == 0) PomodoroPhase.LONG_BREAK else PomodoroPhase.SHORT_BREAK
+        val outcome = repository.completeFocusSession(
+          totalSeconds = cur.totalSeconds,
+          completedFullPomodoroCycle = nextPhase == PomodoroPhase.LONG_BREAK,
+        )
         val nextSec = if (nextPhase == PomodoroPhase.LONG_BREAK) 15 * 60 else 5 * 60
         _mainTimer.update {
           it.copy(
@@ -392,7 +443,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
           title = "Koniec przerwy!",
           body = "Czas wrócić do skupienia.",
         )
-        _toastEvents.tryEmit("☕ Koniec przerwy — gotowy na kolejną sesję!")
+        emitToast("Koniec przerwy — gotowy na kolejną sesję!")
       }
     } else {
       val outcome = repository.completeFocusSession(cur.totalSeconds)
@@ -457,7 +508,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       isRunning = false,
       isFocusActive = false,
     )
-    _toastEvents.tryEmit("Przerwano odliczanie i zresetowano timery")
+    emitToast("Przerwano odliczanie i zresetowano timery")
   }
 
   private fun stopAndResetTaskTimerIfMatches(taskId: Long) {
@@ -485,7 +536,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       title = "Czas zadania minął!",
       body = "Zakończono odliczanie dla: $taskName",
     )
-    _toastEvents.tryEmit("⏱️ Czas minął: $taskName")
+    emitToast("Czas minął: $taskName")
   }
 
   // --- Task & Gamification Actions ---
@@ -510,16 +561,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun skipTask(task: TaskEntity) {
     stopAndResetTaskTimerIfMatches(task.id)
     viewModelScope.launch {
-      val msg = repository.skipTask(task)
-      if (msg.isNotBlank()) _toastEvents.tryEmit(msg)
+      val outcome = repository.skipTaskWithUndo(task)
+      emitUndoableToast(outcome.toastMessage, outcome.undoSnapshot)
     }
   }
 
   fun giveUpTask(task: TaskEntity) {
     stopAndResetTaskTimerIfMatches(task.id)
     viewModelScope.launch {
-      val msg = repository.giveUpTask(task)
-      if (msg.isNotBlank()) _toastEvents.tryEmit(msg)
+      val outcome = repository.giveUpTaskWithUndo(task)
+      emitUndoableToast(outcome.toastMessage, outcome.undoSnapshot)
+    }
+  }
+
+  fun undoTaskAction(snapshot: TaskActionUndoSnapshot) {
+    if (activeUndoSnapshot !== snapshot) return
+    activeUndoSnapshot = null
+    viewModelScope.launch {
+      if (repository.undoTaskAction(snapshot)) {
+        emitToast("Cofnięto akcję")
+      }
     }
   }
 
@@ -532,8 +593,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun deleteTask(taskId: Long) {
     stopAndResetTaskTimerIfMatches(taskId)
     viewModelScope.launch {
-      repository.deleteTask(taskId)
-      _toastEvents.tryEmit("Usunięto zadanie")
+      val outcome = repository.deleteTaskWithUndo(taskId)
+      emitUndoableToast(outcome.toastMessage, outcome.undoSnapshot)
     }
   }
 
@@ -545,12 +606,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     reminder: ReminderMode?,
   ) {
     viewModelScope.launch {
-      val count = repository.applyBulkUpdate(taskIds, category, interval, folderId, reminder)
-      _toastEvents.tryEmit("Zaktualizowano $count zadań")
+      val (count, unlocked) = repository.applyBulkUpdateWithAchievements(taskIds, category, interval, folderId, reminder)
+      emitToast("Zaktualizowano $count zadań")
+      emitUnlockedAchievements(unlocked)
     }
   }
 
-  suspend fun getOrCreateTag(rawName: String): TagEntity = repository.getOrCreateTag(rawName)
+  suspend fun getOrCreateTag(rawName: String): TagEntity = repository.getOrCreateTag(
+    rawName = rawName,
+    trackUserCreation = true,
+    onAchievementsUnlocked = { emitUnlockedAchievements(it) },
+  )
 
   fun updateTag(tag: TagEntity) {
     viewModelScope.launch { repository.updateTag(tag) }
@@ -571,7 +637,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun useInventoryItem(item: ShopItemEntity) {
     viewModelScope.launch {
       val msg = repository.useInventoryItem(item)
-      if (msg.isNotBlank()) _toastEvents.tryEmit(msg)
+      if (msg.isNotBlank()) emitToast(msg)
     }
   }
 
@@ -580,14 +646,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun saveShopItem(item: ShopItemEntity) {
     viewModelScope.launch {
       repository.saveShopItem(item)
-      _toastEvents.tryEmit("Zapisano nagrodę")
+      emitToast("Zapisano nagrodę")
     }
   }
 
   fun deleteShopItem(id: Long) {
     viewModelScope.launch {
       repository.deleteShopItem(id)
-      _toastEvents.tryEmit("Usunięto nagrodę")
+      emitToast("Usunięto nagrodę")
     }
   }
 
@@ -610,7 +676,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun addFolder(icon: String, name: String, colorHex: String = "") {
     if (name.isBlank()) return
-    viewModelScope.launch { repository.addFolder(icon, name, colorHex) }
+    viewModelScope.launch {
+      val unlocked = repository.addFolder(icon, name, colorHex)
+      emitUnlockedAchievements(unlocked)
+    }
   }
 
   fun updateFolder(folder: FolderEntity) {
@@ -643,10 +712,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       if (enabled) {
         ReminderScheduler.scheduleNextCheck(app)
         runPeriodicChecks()
-        _toastEvents.tryEmit("Powiadomienia włączone")
+        emitToast("Powiadomienia włączone")
       } else {
         ReminderScheduler.cancel(app)
-        _toastEvents.tryEmit("Powiadomienia wyłączone")
+        emitToast("Powiadomienia wyłączone")
       }
     }
   }
@@ -661,8 +730,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   suspend fun exportBackupJson(): String {
-    repository.markBackupReminderAcknowledged()
+    val unlocked = repository.recordBackupExportCompleted()
     _showWeeklyBackupReminder.value = false
+    emitUnlockedAchievements(unlocked)
     return repository.exportToJson()
   }
 
@@ -681,8 +751,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  fun snoozeWeeklyBackupReminder30Days() {
+    _showWeeklyBackupReminder.value = false
+    viewModelScope.launch {
+      repository.snoozeBackupReminderFor30Days()
+    }
+    emitToast("Przypomnienie o kopii wyciszone na 30 dni")
+  }
+
   fun notifyBackupExportResult(success: Boolean) {
-    _toastEvents.tryEmit(
+    emitToast(
       if (success) "Kopia zapasowa została zapisana!" else "Nie udało się zapisać kopii zapasowej"
     )
   }
@@ -690,7 +768,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun importBackupJson(json: String) {
     viewModelScope.launch {
       val ok = repository.importFromJson(json)
-      _toastEvents.tryEmit(
+      emitToast(
         if (ok) "Kopia zapasowa została wczytana!" else "Nieprawidłowy plik kopii zapasowej"
       )
     }
@@ -733,7 +811,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
           "Dodano $rewardsLabel do sklepu."
         else -> "Gotowe! Możesz teraz samodzielnie dodawać zadania."
       }
-      _toastEvents.tryEmit(msg)
+      emitToast(msg)
       onDone(addedTasks)
     }
   }
@@ -752,7 +830,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   suspend fun importBackupDuringOnboarding(json: String): Boolean {
     val ok = repository.importFromJson(json, markOnboardingCompleted = true)
-    _toastEvents.tryEmit(
+    emitToast(
       if (ok) "Dane z kopii zapasowej zostały przywrócone!" else "Nie udało się wczytać pliku kopii zapasowej."
     )
     return ok
@@ -761,7 +839,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun addTaskFromTemplate(template: ReadyTaskTemplate, asInactive: Boolean = true) {
     viewModelScope.launch {
       val added = repository.addTaskFromTemplate(template, asInactive = asInactive)
-      _toastEvents.tryEmit(
+      emitToast(
         if (added) {
           "Dodano „${template.name}” do biblioteki zadań (nieaktywne)."
         } else {
@@ -774,7 +852,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun activateLibraryTask(taskId: Long) {
     viewModelScope.launch {
       if (repository.activateLibraryTask(taskId)) {
-        _toastEvents.tryEmit("Zadanie zostało aktywowane!")
+        emitToast("Zadanie zostało aktywowane!")
       }
     }
   }
@@ -785,7 +863,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   ) {
     viewModelScope.launch {
       val added = repository.addRewardFromCatalog(template, customCoinPrice)
-      _toastEvents.tryEmit(
+      emitToast(
         if (added) {
           "Dodano nagrodę „${template.name}” do sklepu."
         } else {
@@ -859,17 +937,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     _isAcceptingRandomQuests.value = true
     viewModelScope.launch {
       try {
-        val addedCount = repository.acceptRandomSideQuests(idsToAccept)
+        val (addedCount, unlocked) = repository.acceptRandomSideQuestsWithAchievements(idsToAccept)
         _pendingRandomQuestIds.value = emptySet()
         if (addedCount > 0) {
-          val missionLabel = when (addedCount) {
-            1 -> "1 misję"
-            2, 3, 4 -> "$addedCount misje"
-            else -> "$addedCount misji"
+          val questLabel = when (addedCount) {
+            1 -> "1 zadanie poboczne"
+            2, 3, 4 -> "$addedCount zadania poboczne"
+            else -> "$addedCount zadań pobocznych"
           }
-          _toastEvents.tryEmit("⚔️ Przyjęto $missionLabel! Znajdziesz je w aktywnych zadaniach.")
+          emitToast("Przyjęto $questLabel! Znajdziesz je w aktywnych zadaniach.")
+          emitUnlockedAchievements(unlocked)
         } else {
-          _toastEvents.tryEmit("Dzienny limit Random Side Questów (3/3) został już wykorzystany.")
+          emitToast("Dzienny limit zadań pobocznych (3/3) wykorzystany.")
         }
         onAccepted(addedCount)
       } finally {

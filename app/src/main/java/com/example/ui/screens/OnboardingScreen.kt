@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -75,6 +77,7 @@ import com.example.ui.components.PixelButton
 import com.example.ui.components.PixelCard
 import com.example.ui.components.PixelIcon
 import com.example.ui.components.PixelProgressBar
+import com.example.ui.components.PixelSectionHeader
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
 import com.example.ui.theme.PixelFontFamily
@@ -164,44 +167,55 @@ fun OnboardingScreen(
     }
   }
 
-  Box(
+  Column(
     modifier = modifier
       .fillMaxSize()
       .background(palette.background)
       .statusBarsPadding()
       .navigationBarsPadding(),
-    contentAlignment = Alignment.TopCenter,
+    horizontalAlignment = Alignment.CenterHorizontally,
   ) {
-    when (step) {
-      OnboardingStep.WELCOME -> {
-        WelcomeStepContent(
-          errorMessage = restoreErrorMessage,
-          onStartSurvey = {
-            restoreErrorMessage = null
-            step = OnboardingStep.Q1_AREAS
-          },
-          onStartFromScratch = onStartFromScratch,
-          onRestoreBackup = {
-            restoreErrorMessage = null
-            backupPickerLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
-          },
-        )
-      }
+    if (step != OnboardingStep.WELCOME) {
+      OnboardingStepProgressHeader(
+        step = step,
+        onSkipEntireSurvey = onStartFromScratch,
+      )
+    }
 
-      OnboardingStep.Q1_AREAS -> {
-        val currentAreas = selectedAreas.orEmpty()
-        SurveyQuestionScaffold(
-          stepNumber = 1,
-          questionTitle = "W czym chcesz, żeby aplikacja Ci pomogła?",
-          questionSubtitle = "Wybierz maksymalnie 3 obszary, na których chcesz się skupić. (${currentAreas.size}/3)",
-          onBack = { step = OnboardingStep.WELCOME },
-          onSkipQuestion = {
-            selectedAreas = null
-            step = OnboardingStep.Q2_TIME
-          },
-          onNext = { step = OnboardingStep.Q2_TIME },
-          onSkipEntireSurvey = onStartFromScratch,
-        ) {
+    Box(
+      modifier = Modifier
+        .weight(1f)
+        .fillMaxWidth(),
+      contentAlignment = Alignment.TopCenter,
+    ) {
+      when (step) {
+        OnboardingStep.WELCOME -> {
+          WelcomeStepContent(
+            errorMessage = restoreErrorMessage,
+            onStartSurvey = {
+              restoreErrorMessage = null
+              step = OnboardingStep.Q1_AREAS
+            },
+            onStartFromScratch = onStartFromScratch,
+            onRestoreBackup = {
+              restoreErrorMessage = null
+              backupPickerLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+            },
+          )
+        }
+
+        OnboardingStep.Q1_AREAS -> {
+          val currentAreas = selectedAreas.orEmpty()
+          SurveyQuestionScaffold(
+            questionTitle = "W czym chcesz, żeby aplikacja Ci pomogła?",
+            questionSubtitle = "Wybierz maksymalnie 3 obszary, na których chcesz się skupić. (${currentAreas.size}/3)",
+            onBack = { step = OnboardingStep.WELCOME },
+            onSkipQuestion = {
+              selectedAreas = null
+              step = OnboardingStep.Q2_TIME
+            },
+            onNext = { step = OnboardingStep.Q2_TIME },
+          ) {
           OnboardingArea.entries.forEach { area ->
             val isSelected = area in currentAreas
             val canSelectMore = currentAreas.size < 3
@@ -227,28 +241,26 @@ fun OnboardingScreen(
         }
       }
 
-      OnboardingStep.Q2_TIME -> {
-        SurveyQuestionScaffold(
-          stepNumber = 2,
-          questionTitle = "Ile czasu chcesz poświęcać na pojedyncze zadanie?",
-          questionSubtitle = "Pomoże to lepiej dopasować pierwsze propozycje — bez zmiany nagród ani trudności.",
-          onBack = { step = OnboardingStep.Q1_AREAS },
-          onSkipQuestion = {
-            selectedTimePref = null
-            step = OnboardingStep.Q3_DETAIL
-          },
-          onNext = { step = OnboardingStep.Q3_DETAIL },
-          onSkipEntireSurvey = onStartFromScratch,
-        ) {
+        OnboardingStep.Q2_TIME -> {
+          SurveyQuestionScaffold(
+            questionTitle = "Ile czasu chcesz poświęcać na pojedyncze zadanie?",
+            questionSubtitle = "Pomoże to lepiej dopasować pierwsze propozycje — bez zmiany nagród ani trudności.",
+            onBack = { step = OnboardingStep.Q1_AREAS },
+            onSkipQuestion = {
+              selectedTimePref = null
+              step = OnboardingStep.Q3_DETAIL
+            },
+            onNext = { step = OnboardingStep.Q3_DETAIL },
+          ) {
           OnboardingTimePref.entries.forEach { pref ->
-            val emoji = when (pref) {
-              OnboardingTimePref.VERY_SHORT -> "⚡"
-              OnboardingTimePref.SHORT -> "⏱️"
-              OnboardingTimePref.MEDIUM -> "🎯"
-              OnboardingTimePref.ANY -> "🌈"
+            val iconKey = when (pref) {
+              OnboardingTimePref.VERY_SHORT -> "bolt"
+              OnboardingTimePref.SHORT -> "timer"
+              OnboardingTimePref.MEDIUM -> "target"
+              OnboardingTimePref.ANY -> "sparkle"
             }
             SurveyOptionCard(
-              iconEmoji = emoji,
+              iconEmoji = iconKey,
               title = pref.label,
               subtitle = pref.subtitle,
               selected = selectedTimePref == pref,
@@ -261,27 +273,25 @@ fun OnboardingScreen(
         }
       }
 
-      OnboardingStep.Q3_DETAIL -> {
-        SurveyQuestionScaffold(
-          stepNumber = 3,
-          questionTitle = "Jak szczegółowe mają być Twoje zadania?",
-          questionSubtitle = "Decyduje tylko o tym, jak wyświetlane są podzadania na karcie zadania.",
-          onBack = { step = OnboardingStep.Q2_TIME },
-          onSkipQuestion = {
-            selectedDetailPref = null
-            step = OnboardingStep.Q4_REWARDS
-          },
-          onNext = { step = OnboardingStep.Q4_REWARDS },
-          onSkipEntireSurvey = onStartFromScratch,
-        ) {
+        OnboardingStep.Q3_DETAIL -> {
+          SurveyQuestionScaffold(
+            questionTitle = "Jak szczegółowe mają być Twoje zadania?",
+            questionSubtitle = "Decyduje tylko o tym, jak wyświetlane są podzadania na karcie zadania.",
+            onBack = { step = OnboardingStep.Q2_TIME },
+            onSkipQuestion = {
+              selectedDetailPref = null
+              step = OnboardingStep.Q4_REWARDS
+            },
+            onNext = { step = OnboardingStep.Q4_REWARDS },
+          ) {
           OnboardingDetailPref.entries.forEach { pref ->
-            val emoji = when (pref) {
-              OnboardingDetailPref.STEP_BY_STEP -> "📋"
-              OnboardingDetailPref.SIMPLE -> "✨"
-              OnboardingDetailPref.FLEXIBLE -> "🔀"
+            val iconKey = when (pref) {
+              OnboardingDetailPref.STEP_BY_STEP -> "checklist"
+              OnboardingDetailPref.SIMPLE -> "sparkle"
+              OnboardingDetailPref.FLEXIBLE -> "target"
             }
             SurveyOptionCard(
-              iconEmoji = emoji,
+              iconEmoji = iconKey,
               title = pref.label,
               subtitle = pref.description,
               selected = selectedDetailPref == pref,
@@ -294,26 +304,24 @@ fun OnboardingScreen(
         }
       }
 
-      OnboardingStep.Q4_REWARDS -> {
-        val currentRewards = selectedRewardPrefs.orEmpty()
-        SurveyQuestionScaffold(
-          stepNumber = 4,
-          questionTitle = "Co sprawiłoby Ci przyjemność jako nagroda?",
-          questionSubtitle = "Możesz wybrać dowolną liczbę kategorii. Wszystkie nagrody możesz później edytować.",
-          onBack = { step = OnboardingStep.Q3_DETAIL },
-          onSkipQuestion = {
-            selectedRewardPrefs = null
-            checkedTaskIds = emptySet()
-            checkedRewardIds = emptySet()
-            step = OnboardingStep.SUMMARY
-          },
-          onNext = {
-            checkedTaskIds = emptySet()
-            checkedRewardIds = emptySet()
-            step = OnboardingStep.SUMMARY
-          },
-          onSkipEntireSurvey = onStartFromScratch,
-        ) {
+        OnboardingStep.Q4_REWARDS -> {
+          val currentRewards = selectedRewardPrefs.orEmpty()
+          SurveyQuestionScaffold(
+            questionTitle = "Co sprawiłoby Ci przyjemność jako nagroda?",
+            questionSubtitle = "Możesz wybrać dowolną liczbę kategorii. Wszystkie nagrody możesz później edytować.",
+            onBack = { step = OnboardingStep.Q3_DETAIL },
+            onSkipQuestion = {
+              selectedRewardPrefs = null
+              checkedTaskIds = emptySet()
+              checkedRewardIds = emptySet()
+              step = OnboardingStep.SUMMARY
+            },
+            onNext = {
+              checkedTaskIds = emptySet()
+              checkedRewardIds = emptySet()
+              step = OnboardingStep.SUMMARY
+            },
+          ) {
           OnboardingRewardPref.entries.forEach { pref ->
             val isSelected = pref in currentRewards
             SurveyOptionCard(
@@ -385,6 +393,7 @@ fun OnboardingScreen(
           },
         )
       }
+    }
     }
   }
 
@@ -632,14 +641,121 @@ private fun WelcomeOptionCard(
 }
 
 @Composable
+private fun OnboardingStepProgressHeader(
+  step: OnboardingStep,
+  onSkipEntireSurvey: () -> Unit,
+) {
+  val palette = LocalGamefyPalette.current
+  val stepIndex = when (step) {
+    OnboardingStep.WELCOME -> 0
+    OnboardingStep.Q1_AREAS -> 1
+    OnboardingStep.Q2_TIME -> 2
+    OnboardingStep.Q3_DETAIL -> 3
+    OnboardingStep.Q4_REWARDS -> 4
+    OnboardingStep.SUMMARY -> 4
+  }
+  val isSummary = step == OnboardingStep.SUMMARY
+  val stepLabel = if (isSummary) "Podsumowanie · 4/4" else "Pytanie $stepIndex/4"
+  val targetProgress = (stepIndex / 4f).coerceIn(0f, 1f)
+  val animatedProgress by animateFloatAsState(
+    targetValue = targetProgress,
+    animationSpec = tween(durationMillis = 260),
+    label = "onboardingProgress",
+  )
+
+  Surface(
+    color = palette.surface,
+    shadowElevation = 2.dp,
+    modifier = Modifier
+      .fillMaxWidth()
+      .testTag("onboarding_progress_header"),
+  ) {
+    Column(
+      modifier = Modifier
+        .fillMaxWidth(),
+      horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+      Column(
+        modifier = Modifier
+          .fillMaxWidth()
+          .widthIn(max = 620.dp)
+          .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+          Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = palette.accent.copy(alpha = 0.14f),
+            border = BorderStroke(1.5.dp, palette.accent.copy(alpha = 0.45f)),
+          ) {
+            Text(
+              text = stepLabel,
+              fontFamily = PixelFontFamily,
+              fontWeight = FontWeight.Bold,
+              fontSize = 15.sp,
+              color = palette.accent,
+              modifier = Modifier
+                .padding(horizontal = 10.dp, vertical = 4.dp)
+                .testTag("onboarding_step_label"),
+            )
+          }
+
+          if (!isSummary) {
+            TextButton(
+              onClick = onSkipEntireSurvey,
+              modifier = Modifier
+                .heightIn(min = 48.dp)
+                .testTag("onboarding_skip_all"),
+            ) {
+              Text(
+                text = "Pomiń ankietę",
+                style = MaterialTheme.typography.labelMedium,
+                color = palette.textMuted,
+              )
+            }
+          } else {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+              Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = "Ankieta ukończona",
+                tint = PixelColors.Green,
+                modifier = Modifier.size(18.dp),
+              )
+              Text(
+                text = "Gotowe",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = PixelColors.Green,
+              )
+            }
+          }
+        }
+
+        PixelProgressBar(
+          progress = animatedProgress,
+          barHeight = 12.dp,
+          modifier = Modifier.testTag("onboarding_progress_bar"),
+        )
+      }
+      HorizontalDivider(color = palette.divider)
+    }
+  }
+}
+
+@Composable
 private fun SurveyQuestionScaffold(
-  stepNumber: Int,
   questionTitle: String,
   questionSubtitle: String,
   onBack: () -> Unit,
   onSkipQuestion: () -> Unit,
   onNext: () -> Unit,
-  onSkipEntireSurvey: () -> Unit,
   optionsContent: @Composable () -> Unit,
 ) {
   val palette = LocalGamefyPalette.current
@@ -647,39 +763,8 @@ private fun SurveyQuestionScaffold(
     modifier = Modifier
       .fillMaxSize()
       .widthIn(max = 600.dp)
-      .padding(horizontal = 16.dp, vertical = 12.dp),
+      .padding(horizontal = 16.dp, vertical = 14.dp),
   ) {
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-      Text(
-        text = "Pytanie $stepNumber z 4",
-        fontFamily = PixelFontFamily,
-        fontWeight = FontWeight.Bold,
-        fontSize = 14.sp,
-        color = palette.accent,
-      )
-      TextButton(
-        onClick = onSkipEntireSurvey,
-        modifier = Modifier.testTag("onboarding_skip_all"),
-      ) {
-        Text(
-          text = "Pomiń całą ankietę",
-          style = MaterialTheme.typography.labelMedium,
-          color = palette.textMuted,
-        )
-      }
-    }
-
-    PixelProgressBar(
-      progress = stepNumber / 4f,
-      barHeight = 12.dp,
-    )
-
-    Spacer(modifier = Modifier.height(14.dp))
-
     Text(
       text = questionTitle,
       style = MaterialTheme.typography.titleLarge,
@@ -796,7 +881,7 @@ private fun SurveyOptionCard(
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-      Text(text = iconEmoji, fontSize = 22.sp)
+      PixelIcon(icon = iconEmoji, size = 24.dp)
       Column(modifier = Modifier.weight(1f)) {
         Text(
           text = title,
@@ -858,7 +943,7 @@ private fun SummaryStepContent(
         color = palette.surface,
         border = BorderStroke(1.5.dp, palette.divider),
         modifier = Modifier
-          .size(44.dp)
+          .size(48.dp)
           .clip(RoundedCornerShape(10.dp))
           .clickable(onClick = onBack),
       ) {
@@ -928,11 +1013,9 @@ private fun SummaryStepContent(
         }
       } else {
         item {
-          Text(
-            text = "PROPONOWANE ZADANIA (${recommendedTasks.size})",
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
-            color = palette.textMuted,
+          PixelSectionHeader(
+            title = "Proponowane zadania",
+            badgeText = "${recommendedTasks.size}",
           )
         }
         items(recommendedTasks, key = { it.id }) { tpl ->
@@ -971,10 +1054,10 @@ private fun SummaryStepContent(
                   horizontalArrangement = Arrangement.spacedBy(6.dp),
                   verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                  SummaryTagChip("${tpl.area.icon} ${tpl.area.label}")
-                  SummaryTagChip("⏱ ${tpl.estimatedMinutes} min")
+                  SummaryTagChip(tpl.area.label)
+                  SummaryTagChip("${tpl.estimatedMinutes} min")
                   SummaryTagChip("Trudność ${tpl.difficultyLevel}/5")
-                  SummaryTagChip("+${tpl.coins} 🪙 · +${tpl.exp} EXP")
+                  SummaryTagChip("+${tpl.coins} monet · +${tpl.exp} EXP")
                 }
                 val attrsText = tpl.attributeWeights.entries.joinToString(" · ") { (k, v) -> "$k $v%" }
                 Text(
@@ -996,11 +1079,10 @@ private fun SummaryStepContent(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
           ) {
-            Text(
-              text = "PROPONOWANE NAGRODY DO SKLEPU (${recommendedRewards.size})",
-              style = MaterialTheme.typography.labelLarge,
-              fontWeight = FontWeight.Bold,
-              color = palette.textMuted,
+            PixelSectionHeader(
+              title = "Proponowane nagrody",
+              subtitle = "Do Twojego sklepu",
+              badgeText = "${recommendedRewards.size}",
               modifier = Modifier.weight(1f),
             )
             TextButton(onClick = onToggleAllRewards) {
@@ -1034,7 +1116,7 @@ private fun SummaryStepContent(
                 onCheckedChange = { onToggleReward(reward.id) },
                 modifier = Modifier.testTag("onboarding_reward_check_${reward.id}"),
               )
-              Text(text = reward.icon, fontSize = 20.sp)
+              PixelIcon(icon = reward.icon, size = 22.dp)
               Column(modifier = Modifier.weight(1f)) {
                 Text(
                   text = reward.name,
@@ -1043,7 +1125,7 @@ private fun SummaryStepContent(
                   color = palette.textPrimary,
                 )
                 Text(
-                  text = "Cena w sklepie: ${reward.defaultCoinPrice} 🪙 (edytowalna)",
+                  text = "Cena w sklepie: ${reward.defaultCoinPrice} monet (edytowalna)",
                   style = MaterialTheme.typography.labelSmall,
                   color = palette.textMuted,
                 )
@@ -1058,9 +1140,19 @@ private fun SummaryStepContent(
     Spacer(modifier = Modifier.height(10.dp))
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      val tasksLabel = when {
+        checkedTaskIds.size == 1 -> "1 zadanie"
+        checkedTaskIds.size % 10 in 2..4 && checkedTaskIds.size % 100 !in 12..14 -> "${checkedTaskIds.size} zadania"
+        else -> "${checkedTaskIds.size} zadań"
+      }
+      val rewardsLabel = when {
+        checkedRewardIds.size == 1 -> "1 nagroda"
+        checkedRewardIds.size % 10 in 2..4 && checkedRewardIds.size % 100 !in 12..14 -> "${checkedRewardIds.size} nagrody"
+        else -> "${checkedRewardIds.size} nagród"
+      }
       val confirmButtonLabel = when {
         checkedTaskIds.isNotEmpty() && checkedRewardIds.isNotEmpty() ->
-          "Dodaj wybrane (${checkedTaskIds.size} zad. · ${checkedRewardIds.size} nagr.)"
+          "Dodaj wybrane ($tasksLabel · $rewardsLabel)"
         checkedTaskIds.isNotEmpty() ->
           "Dodaj wybrane do biblioteki (${checkedTaskIds.size})"
         checkedRewardIds.isNotEmpty() ->

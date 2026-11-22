@@ -11,12 +11,20 @@ import com.example.ui.components.colorToHexString
 import com.example.ui.components.colorToHsv
 import com.example.ui.components.hsvToColor
 import com.example.ui.components.parseHexColor
+import com.example.data.model.AchievementCategory
+import com.example.data.model.AchievementTier
 import com.example.data.model.ActivityEventType
 import com.example.data.model.AppFontFamilyOption
 import com.example.data.model.AppFontSize
 import com.example.data.model.AppThemeId
 import com.example.data.model.AppWordSpacing
+import com.example.data.model.GAMEFY_ACHIEVEMENTS
+import com.example.data.model.GAMEFY_ACHIEVEMENT_GROUPS
 import com.example.data.model.MILLIS_PER_DAY
+import com.example.data.model.PlayerStatsSnapshot
+import com.example.data.model.computeGroupProgress
+import com.example.data.model.computeNextStreakWithFreeze
+import com.example.data.model.isoWeekKeyForEpochDay
 import com.example.data.model.NotificationSettings
 import com.example.data.model.NotificationSummaryStyle
 import com.example.data.model.NotificationTimeSlot
@@ -422,10 +430,15 @@ class ExampleUnitTest {
   fun randomSideQuestCatalogAndPickingLogicMeetAllRequirements() {
     assertEquals(6, RANDOM_SIDE_QUEST_BOARD_SIZE)
     assertEquals(3, RANDOM_SIDE_QUEST_DAILY_LIMIT)
-    assertEquals(6, RANDOM_SIDE_QUEST_TEMPLATES.size)
+    assertTrue(RANDOM_SIDE_QUEST_TEMPLATES.size >= RANDOM_SIDE_QUEST_BOARD_SIZE)
     assertEquals(
-      listOf("rq_001", "rq_002", "rq_003", "rq_004", "rq_005", "rq_006"),
-      RANDOM_SIDE_QUEST_TEMPLATES.map { it.id },
+      RANDOM_SIDE_QUEST_TEMPLATES.size,
+      RANDOM_SIDE_QUEST_TEMPLATES.map { it.id }.toSet().size,
+    )
+    assertTrue(
+      listOf("rq_001", "rq_002", "rq_003", "rq_004", "rq_005", "rq_006").all { id ->
+        RANDOM_SIDE_QUEST_TEMPLATES.any { it.id == id }
+      },
     )
 
     RANDOM_SIDE_QUEST_TEMPLATES.forEach { tpl ->
@@ -434,13 +447,14 @@ class ExampleUnitTest {
       assertTrue(tpl.story.isNotBlank())
       assertTrue(tpl.goal.isNotBlank())
       assertTrue(tpl.estimatedMinutes > 0)
-      assertEquals(1, tpl.difficultyLevel)
-      assertEquals(2, tpl.coins)
-      assertEquals(2, tpl.exp)
+      assertTrue("Difficulty must be 1..5 for ${tpl.id}", tpl.difficultyLevel in 1..5)
+      val (expectedCoins, expectedExp) = rewardForDifficultyLevel(tpl.difficultyLevel)
+      assertEquals(expectedCoins, tpl.coins)
+      assertEquals(expectedExp, tpl.exp)
       assertEquals("Weights must sum to 100 for ${tpl.id}", 100, tpl.attributeWeights.values.sum())
     }
 
-    // Current 6-item catalog returns all 6 distinct quests in randomized order
+    // Catalog returns 6 distinct quests in randomized order
     val pickedSix = pickRandomSideQuests(random = Random(42))
     assertEquals(6, pickedSix.size)
     assertEquals(6, pickedSix.map { it.id }.toSet().size)
@@ -510,6 +524,50 @@ class ExampleUnitTest {
     assertEquals(2, AppWordSpacing.entries.size)
     assertTrue(AppWordSpacing.WIDER.extraLetterSpacingSp > AppWordSpacing.STANDARD.extraLetterSpacingSp)
     assertTrue(AppWordSpacing.WIDER.lineHeightMultiplier > AppWordSpacing.STANDARD.lineHeightMultiplier)
+  }
+
+  @Test
+  fun healthyStreakFreezePreservesOneRestDayPerWeekAndFlagsComebackAfterSevenDays() {
+    // Pick a known Monday epoch day (2026-11-16 is a Monday)
+    val mondayCal = Calendar.getInstance().apply {
+      set(2026, Calendar.NOVEMBER, 16, 12, 0, 0)
+      set(Calendar.MILLISECOND, 0)
+    }
+    val mondayEpoch = com.example.data.model.localEpochDay(mondayCal.timeInMillis)
+
+    // Missed Tuesday -> complete on Wednesday (gap == 2) uses weekly freeze
+    val wedRes = computeNextStreakWithFreeze(
+      currentStreak = 6,
+      bestStreak = 6,
+      lastTaskEpochDay = mondayEpoch,
+      freezeUsedWeekKey = 0,
+      todayEpochDay = mondayEpoch + 2L,
+    )
+    assertEquals(7, wedRes.newStreak)
+    assertTrue(wedRes.usedFreezeNow)
+    assertEquals(isoWeekKeyForEpochDay(mondayEpoch + 1L), wedRes.freezeUsedWeekKey)
+
+    // Missed Thursday in same week -> complete on Friday (gap == 2) resets streak because freeze already used this week
+    val friRes = computeNextStreakWithFreeze(
+      currentStreak = 7,
+      bestStreak = 7,
+      lastTaskEpochDay = mondayEpoch + 2L,
+      freezeUsedWeekKey = wedRes.freezeUsedWeekKey,
+      todayEpochDay = mondayEpoch + 4L,
+    )
+    assertEquals(1, friRes.newStreak)
+    assertFalse(friRes.usedFreezeNow)
+
+    // Comeback after 7+ days gap flags isComebackAfterBreak
+    val comebackRes = computeNextStreakWithFreeze(
+      currentStreak = 5,
+      bestStreak = 5,
+      lastTaskEpochDay = mondayEpoch,
+      freezeUsedWeekKey = 0,
+      todayEpochDay = mondayEpoch + 8L,
+    )
+    assertEquals(1, comebackRes.newStreak)
+    assertTrue(comebackRes.isComebackAfterBreak)
   }
 }
 

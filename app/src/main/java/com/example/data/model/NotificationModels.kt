@@ -28,8 +28,8 @@ enum class NotificationTriggerMode(
 ) {
   WITH_REMINDER(
     code = "reminder",
-    label = "Gdy zadanie ma przypominajkę",
-    description = "Powiadamia według ustawień przypominajki wybranego zadania.",
+    label = "Gdy zadanie ma przypomnienie",
+    description = "Powiadamia według ustawień przypomnienia wybranego zadania.",
   ),
   ONLY_FINISHING(
     code = "ending",
@@ -38,7 +38,7 @@ enum class NotificationTriggerMode(
   ),
   BOTH(
     code = "both",
-    label = "Przypominajka + koniec terminu",
+    label = "Przypomnienie + koniec terminu",
     description = "Łączy przypomnienia zadań oraz alerty tuż przed końcem czasu.",
   );
 
@@ -60,7 +60,7 @@ enum class NotificationSummaryStyle(
   ),
   URGENT_TICK_TOCK(
     code = "tick_tock",
-    label = "Krótka przypominajka („Tik tak...”)",
+    label = "Krótkie przypomnienie („Tik tak...”)",
     description = "Krótki sygnał, że zadania czekają i zaraz będą po terminie.",
   );
 

@@ -6,17 +6,24 @@ import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,15 +39,20 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,17 +71,24 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.data.local.ShopItemEntity
 import com.example.data.model.OnboardingRewardPref
 import com.example.data.model.PurchaseLimitPeriod
@@ -77,14 +96,28 @@ import com.example.data.model.REWARD_CATALOG_TEMPLATES
 import com.example.data.model.RewardCatalogTemplate
 import com.example.data.model.calculateLevel
 import com.example.ui.GamefyUiState
+import com.example.ui.components.ActiveFilterChipItem
+import com.example.ui.components.ActiveFilterChipsRow
 import com.example.ui.components.LinkifiedText
 import com.example.ui.components.PixelButton
 import com.example.ui.components.PixelCard
+import com.example.ui.components.PixelEmptyStateCard
 import com.example.ui.components.PixelIcon
+import com.example.ui.components.PixelLockedButton
+import com.example.ui.components.PixelSectionHeader
+import com.example.ui.components.SearchFilterIconButton
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
+import com.example.ui.theme.PixelFontFamily
 import kotlinx.coroutines.launch
 
+private enum class ShopOwnershipFilter(val label: String) {
+  ALL("Wszystkie"),
+  OWNED("Posiadam"),
+  NOT_OWNED("Nie posiadam"),
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ShopScreen(
   uiState: GamefyUiState,
@@ -102,6 +135,101 @@ fun ShopScreen(
   var showRewardCatalog by remember { mutableStateOf(false) }
   var expandedEditItemId by remember { mutableStateOf<Long?>(null) }
   var pendingImageItemId by remember { mutableStateOf<Long?>(null) }
+
+  // Search & filter state
+  var showShopFilters by remember { mutableStateOf(false) }
+  var searchQuery by remember { mutableStateOf("") }
+  var onlyAvailable by remember { mutableStateOf(false) }
+  var ownershipFilter by remember { mutableStateOf(ShopOwnershipFilter.ALL) }
+  var minCoinsText by remember { mutableStateOf("") }
+  var maxCoinsText by remember { mutableStateOf("") }
+  var minGemsText by remember { mutableStateOf("") }
+  var maxGemsText by remember { mutableStateOf("") }
+
+  val minCoins = minCoinsText.toIntOrNull()
+  val maxCoins = maxCoinsText.toIntOrNull()
+  val minGems = minGemsText.toIntOrNull()
+  val maxGems = maxGemsText.toIntOrNull()
+
+  val clearShopFilters: () -> Unit = {
+    searchQuery = ""
+    onlyAvailable = false
+    ownershipFilter = ShopOwnershipFilter.ALL
+    minCoinsText = ""
+    maxCoinsText = ""
+    minGemsText = ""
+    maxGemsText = ""
+  }
+
+  val activeShopFilterChips = buildList {
+    val trimmed = searchQuery.trim()
+    if (trimmed.isNotEmpty()) {
+      add(
+        ActiveFilterChipItem(
+          key = "shop_search",
+          label = "Szukaj: „$trimmed”",
+          onRemove = { searchQuery = "" },
+          testTag = "shop_active_chip_search",
+        )
+      )
+    }
+    if (onlyAvailable) {
+      add(
+        ActiveFilterChipItem(
+          key = "shop_available",
+          label = "Tylko dostępne",
+          onRemove = { onlyAvailable = false },
+          testTag = "shop_active_chip_available",
+        )
+      )
+    }
+    if (ownershipFilter != ShopOwnershipFilter.ALL) {
+      add(
+        ActiveFilterChipItem(
+          key = "shop_ownership",
+          label = ownershipFilter.label,
+          onRemove = { ownershipFilter = ShopOwnershipFilter.ALL },
+          testTag = "shop_active_chip_ownership",
+        )
+      )
+    }
+    if (minCoins != null || maxCoins != null) {
+      val rangeLabel = when {
+        minCoins != null && maxCoins != null -> "Monety: $minCoins–$maxCoins"
+        minCoins != null -> "Monety: od $minCoins"
+        else -> "Monety: do $maxCoins"
+      }
+      add(
+        ActiveFilterChipItem(
+          key = "shop_coins_range",
+          label = rangeLabel,
+          onRemove = {
+            minCoinsText = ""
+            maxCoinsText = ""
+          },
+          testTag = "shop_active_chip_coins",
+        )
+      )
+    }
+    if (minGems != null || maxGems != null) {
+      val rangeLabel = when {
+        minGems != null && maxGems != null -> "Kryształy: $minGems–$maxGems"
+        minGems != null -> "Kryształy: od $minGems"
+        else -> "Kryształy: do $maxGems"
+      }
+      add(
+        ActiveFilterChipItem(
+          key = "shop_gems_range",
+          label = rangeLabel,
+          onRemove = {
+            minGemsText = ""
+            maxGemsText = ""
+          },
+          testTag = "shop_active_chip_gems",
+        )
+      )
+    }
+  }
 
   val existingRewardTemplateIds = remember(uiState.shopItems) {
     uiState.shopItems.mapNotNull { it.sourceRewardTemplateId }.toSet()
@@ -122,6 +250,55 @@ fun ShopScreen(
     }
   }
 
+  val filteredShopItems = remember(
+    uiState.shopItems,
+    uiState.profile.coins,
+    uiState.profile.gems,
+    uiState.attributes,
+    searchQuery,
+    onlyAvailable,
+    ownershipFilter,
+    minCoins,
+    maxCoins,
+    minGems,
+    maxGems,
+  ) {
+    val q = searchQuery.trim()
+    uiState.shopItems.filter { item ->
+      val queryOk = q.isEmpty() ||
+        item.name.contains(q, ignoreCase = true) ||
+        item.description.contains(q, ignoreCase = true)
+
+      val ownershipOk = when (ownershipFilter) {
+        ShopOwnershipFilter.ALL -> true
+        ShopOwnershipFilter.OWNED -> item.ownedQuantity > 0
+        ShopOwnershipFilter.NOT_OWNED -> item.ownedQuantity == 0
+      }
+
+      val coinsOk = (minCoins == null || item.coinPrice >= minCoins) &&
+        (maxCoins == null || item.coinPrice <= maxCoins)
+      val gemsOk = (minGems == null || item.gemPrice >= minGems) &&
+        (maxGems == null || item.gemPrice <= maxGems)
+
+      val availableOk = if (!onlyAvailable) {
+        true
+      } else {
+        val reqAttr = if (item.requiredAttrId > 0L) {
+          uiState.attributes.find { it.id == item.requiredAttrId }
+        } else null
+        val attrLevel = reqAttr?.let { calculateLevel(it.exp).level } ?: 0
+        val attrLocked = reqAttr != null && attrLevel < item.requiredAttrLevel
+        val period = PurchaseLimitPeriod.fromCode(item.limitPeriodCode)
+        val boughtCount = if (period != PurchaseLimitPeriod.UNLIMITED) countPurchasesInPeriod(item) else 0
+        val limitReached = period != PurchaseLimitPeriod.UNLIMITED && boughtCount >= item.limitMaxCount
+        val canAfford = uiState.profile.coins >= item.coinPrice && uiState.profile.gems >= item.gemPrice
+        !attrLocked && !limitReached && canAfford
+      }
+
+      queryOk && ownershipOk && coinsOk && gemsOk && availableOk
+    }
+  }
+
   Column(
     modifier = modifier.fillMaxSize(),
     horizontalAlignment = Alignment.CenterHorizontally,
@@ -132,7 +309,17 @@ fun ShopScreen(
         .fillMaxWidth()
         .padding(horizontal = 16.dp, vertical = 8.dp),
       horizontalArrangement = Arrangement.spacedBy(8.dp),
+      verticalAlignment = Alignment.CenterVertically,
     ) {
+      if (!isEditMode && uiState.shopItems.isNotEmpty()) {
+        SearchFilterIconButton(
+          activeCount = activeShopFilterChips.size,
+          isOpen = showShopFilters,
+          onClick = { showShopFilters = !showShopFilters },
+          testTag = "shop_filter_toggle",
+          contentDescription = "Szukaj i filtruj w sklepie",
+        )
+      }
       PixelButton(
         text = if (isEditMode) "Gotowe" else "Edytuj nagrody",
         compact = true,
@@ -152,6 +339,7 @@ fun ShopScreen(
         onClick = {
           isEditMode = !isEditMode
           expandedEditItemId = null
+          if (isEditMode) showShopFilters = false
         },
       )
       PixelButton(
@@ -172,6 +360,123 @@ fun ShopScreen(
         },
         onClick = { showRewardCatalog = true },
       )
+    }
+
+    if (!isEditMode && uiState.shopItems.isNotEmpty()) {
+      ActiveFilterChipsRow(
+        chips = activeShopFilterChips,
+        onClearAll = clearShopFilters,
+        clearButtonTestTag = "shop_clear_filters_button",
+      )
+
+      AnimatedVisibility(visible = showShopFilters) {
+        PixelCard(
+          modifier = Modifier
+            .widthIn(max = 640.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+          contentPadding = PaddingValues(12.dp),
+        ) {
+          OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = { Text("Szukaj nagród po nazwie lub opisie") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = {
+              if (searchQuery.isNotEmpty()) {
+                IconButton(onClick = { searchQuery = "" }) {
+                  Icon(Icons.Default.Close, contentDescription = "Wyczyść wyszukiwanie")
+                }
+              }
+            },
+            singleLine = true,
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("shop_search_input"),
+          )
+
+          Spacer(modifier = Modifier.height(10.dp))
+          PixelSectionHeader(title = "Dostępność i posiadanie")
+          Spacer(modifier = Modifier.height(4.dp))
+          FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+          ) {
+            FilterChip(
+              selected = onlyAvailable,
+              onClick = { onlyAvailable = !onlyAvailable },
+              label = { Text("Tylko dostępne") },
+              modifier = Modifier.testTag("shop_filter_only_available"),
+            )
+            ShopOwnershipFilter.entries.forEach { mode ->
+              FilterChip(
+                selected = ownershipFilter == mode,
+                onClick = { ownershipFilter = mode },
+                label = { Text(mode.label) },
+                modifier = Modifier.testTag("shop_filter_ownership_${mode.name.lowercase()}"),
+              )
+            }
+          }
+
+          Spacer(modifier = Modifier.height(10.dp))
+          PixelSectionHeader(title = "Zakres kosztów")
+          Spacer(modifier = Modifier.height(6.dp))
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            PixelIcon(icon = "coin", size = 20.dp)
+            OutlinedTextField(
+              value = minCoinsText,
+              onValueChange = { minCoinsText = it.filter(Char::isDigit) },
+              label = { Text("Monety od") },
+              singleLine = true,
+              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+              modifier = Modifier
+                .weight(1f)
+                .testTag("shop_filter_min_coins"),
+            )
+            OutlinedTextField(
+              value = maxCoinsText,
+              onValueChange = { maxCoinsText = it.filter(Char::isDigit) },
+              label = { Text("Monety do") },
+              singleLine = true,
+              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+              modifier = Modifier
+                .weight(1f)
+                .testTag("shop_filter_max_coins"),
+            )
+          }
+          Spacer(modifier = Modifier.height(6.dp))
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            PixelIcon(icon = "gem", size = 20.dp)
+            OutlinedTextField(
+              value = minGemsText,
+              onValueChange = { minGemsText = it.filter(Char::isDigit) },
+              label = { Text("Kryształy od") },
+              singleLine = true,
+              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+              modifier = Modifier
+                .weight(1f)
+                .testTag("shop_filter_min_gems"),
+            )
+            OutlinedTextField(
+              value = maxGemsText,
+              onValueChange = { maxGemsText = it.filter(Char::isDigit) },
+              label = { Text("Kryształy do") },
+              singleLine = true,
+              keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+              modifier = Modifier
+                .weight(1f)
+                .testTag("shop_filter_max_gems"),
+            )
+          }
+        }
+      }
     }
 
     if (isEditMode) {
@@ -203,7 +508,7 @@ fun ShopScreen(
 
         item {
           PixelButton(
-            text = "Dodaj nagrodę",
+            text = "Nowa nagroda",
             modifier = Modifier.fillMaxWidth(),
             leadingIcon = {
               Icon(
@@ -216,7 +521,7 @@ fun ShopScreen(
             onClick = {
               onSaveItem(
                 ShopItemEntity(
-                  icon = "🎁",
+                  icon = "gift",
                   name = "Nowa nagroda",
                   coinPrice = 50,
                   gemPrice = 0,
@@ -233,58 +538,47 @@ fun ShopScreen(
           .padding(horizontal = 16.dp, vertical = 12.dp),
         contentAlignment = Alignment.TopCenter,
       ) {
-        PixelCard(modifier = Modifier.widthIn(max = 560.dp)) {
-          Column(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-          ) {
-            PixelIcon(icon = "bag", size = 44.dp)
-            Text(
-              text = "Twój sklep jest jeszcze pusty",
-              style = MaterialTheme.typography.titleMedium,
-              fontWeight = FontWeight.Bold,
-              color = palette.textPrimary,
-            )
-            Text(
-              text = "Dodaj własne nagrody albo wybierz gotowe propozycje z katalogu nagród. Wszystkie ceny i nazwy możesz dowolnie edytować.",
-              style = MaterialTheme.typography.bodySmall,
-              color = palette.textMuted,
-              textAlign = TextAlign.Center,
-            )
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-              PixelButton(
-                text = "Otwórz katalog",
-                compact = true,
-                modifier = Modifier.weight(1f),
-                onClick = { showRewardCatalog = true },
+        PixelEmptyStateCard(
+          illustrationRes = R.drawable.img_empty_shop,
+          illustrationContentDescription = "Ilustracja pustego kramu sklepowego",
+          title = "Twój sklep jest jeszcze pusty",
+          subtitle = "Dodaj własne nagrody albo wybierz gotowe propozycje z katalogu nagród. Wszystkie ceny i nazwy możesz dowolnie edytować.",
+          primaryActionLabel = "Dodaj nagrodę",
+          primaryActionTestTag = "empty_shop_add_reward_button",
+          onPrimaryAction = {
+            onSaveItem(
+              ShopItemEntity(
+                icon = "gift",
+                name = "Nowa nagroda",
+                coinPrice = 50,
+                gemPrice = 0,
               )
-              PixelButton(
-                text = "Dodaj własną",
-                compact = true,
-                containerColor = palette.surfaceSubtle,
-                contentColor = palette.textPrimary,
-                modifier = Modifier.weight(1f),
-                onClick = {
-                  onSaveItem(
-                    ShopItemEntity(
-                      icon = "🎁",
-                      name = "Nowa nagroda",
-                      coinPrice = 50,
-                      gemPrice = 0,
-                    )
-                  )
-                  isEditMode = true
-                },
-              )
-            }
-          }
-        }
+            )
+            isEditMode = true
+          },
+          secondaryActionLabel = "Otwórz katalog",
+          secondaryActionTestTag = "empty_shop_open_catalog_button",
+          onSecondaryAction = { showRewardCatalog = true },
+          modifier = Modifier.widthIn(max = 560.dp),
+        )
+      }
+    } else if (filteredShopItems.isEmpty()) {
+      Box(
+        modifier = Modifier
+          .fillMaxSize()
+          .padding(horizontal = 16.dp, vertical = 12.dp),
+        contentAlignment = Alignment.TopCenter,
+      ) {
+        PixelEmptyStateCard(
+          illustrationRes = R.drawable.img_empty_shop,
+          illustrationContentDescription = "Ilustracja pustych wyników filtrowania sklepu",
+          title = "Brak pasujących nagród",
+          subtitle = "Żadna nagroda w sklepie nie spełnia wybranych filtrów.",
+          primaryActionLabel = "Wyczyść filtry",
+          primaryActionTestTag = "empty_filtered_shop_clear_button",
+          onPrimaryAction = clearShopFilters,
+          modifier = Modifier.widthIn(max = 560.dp),
+        )
       }
     } else {
       BoxWithConstraints(
@@ -301,143 +595,207 @@ fun ShopScreen(
           horizontalArrangement = Arrangement.spacedBy(10.dp),
           verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-          items(uiState.shopItems, key = { it.id }) { item ->
+          items(filteredShopItems, key = { it.id }) { item ->
             val reqAttr = if (item.requiredAttrId > 0L) {
               uiState.attributes.find { it.id == item.requiredAttrId }
             } else null
-            val attrLocked = reqAttr != null && calculateLevel(reqAttr.exp).level < item.requiredAttrLevel
+            val attrLevel = reqAttr?.let { calculateLevel(it.exp).level } ?: 0
+            val attrLocked = reqAttr != null && attrLevel < item.requiredAttrLevel
             val period = PurchaseLimitPeriod.fromCode(item.limitPeriodCode)
             val boughtCount = if (period != PurchaseLimitPeriod.UNLIMITED) {
               countPurchasesInPeriod(item)
             } else 0
             val limitReached = period != PurchaseLimitPeriod.UNLIMITED && boughtCount >= item.limitMaxCount
-            val canAfford = uiState.profile.coins >= item.coinPrice && uiState.profile.gems >= item.gemPrice
+            val missingCoins = uiState.profile.coins < item.coinPrice
+            val missingGems = uiState.profile.gems < item.gemPrice
+            val isUnavailable = attrLocked || limitReached || missingCoins || missingGems
 
-            PixelCard(contentPadding = PaddingValues(12.dp)) {
+            val lockOverlayTitle: String? = when {
+              attrLocked -> "Wymagany poziom ${item.requiredAttrLevel}"
+              limitReached -> "Limit wyczerpany"
+              missingCoins && missingGems -> "Za mało środków"
+              missingGems -> "Za mało kryształów"
+              missingCoins -> "Za mało monet"
+              else -> null
+            }
+            val lockOverlaySubtitle: String? = when {
+              attrLocked && reqAttr != null -> reqAttr.name
+              limitReached -> "$boughtCount/${item.limitMaxCount} ${period.label}"
+              missingCoins && missingGems -> "Brak monet i kryształów"
+              missingGems -> "Masz ${uiState.profile.gems}/${item.gemPrice}"
+              missingCoins -> "Masz ${uiState.profile.coins}/${item.coinPrice}"
+              else -> null
+            }
+
+            PixelCard(
+              contentPadding = PaddingValues(12.dp),
+              containerColor = if (isUnavailable) palette.surfaceSubtle else palette.surface,
+              borderColor = if (isUnavailable) palette.divider else palette.outline.copy(alpha = 0.35f),
+              modifier = Modifier.testTag("shop_tile_${item.id}"),
+            ) {
               Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
               ) {
-                ShopItemThumbnail(imageData = item.imageData, icon = item.icon, sizeDp = 58)
+                Box(
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 68.dp),
+                  contentAlignment = Alignment.Center,
+                ) {
+                  ShopItemThumbnail(
+                    imageData = item.imageData,
+                    icon = item.icon,
+                    sizeDp = 58,
+                    grayscale = isUnavailable,
+                  )
+
+                  if (item.ownedQuantity > 0) {
+                    Surface(
+                      shape = RoundedCornerShape(8.dp),
+                      color = if (isUnavailable) palette.surface.copy(alpha = 0.9f) else palette.accent.copy(alpha = 0.16f),
+                      border = BorderStroke(
+                        1.dp,
+                        if (isUnavailable) palette.divider else palette.accent.copy(alpha = 0.45f),
+                      ),
+                      modifier = Modifier.align(Alignment.TopEnd),
+                    ) {
+                      Text(
+                        text = "×${item.ownedQuantity}",
+                        fontFamily = PixelFontFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = if (isUnavailable) palette.textMuted else palette.accent,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                      )
+                    }
+                  }
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
 
-                Text(
-                  text = item.name,
-                  style = MaterialTheme.typography.titleMedium,
-                  color = palette.textPrimary,
-                  textAlign = TextAlign.Center,
-                  maxLines = 2,
-                  overflow = TextOverflow.Ellipsis,
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                  verticalAlignment = Alignment.CenterVertically,
-                  horizontalArrangement = Arrangement.spacedBy(6.dp),
+                Column(
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .alpha(if (isUnavailable) 0.65f else 1f),
+                  horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                  if (item.coinPrice > 0) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                      PixelIcon(icon = "coin", size = 15.dp)
-                      Spacer(modifier = Modifier.width(3.dp))
-                      Text(
-                        text = "${item.coinPrice}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                        color = palette.textPrimary,
-                      )
-                    }
-                  }
-                  if (item.gemPrice > 0) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                      PixelIcon(icon = "gem", size = 15.dp)
-                      Spacer(modifier = Modifier.width(3.dp))
-                      Text(
-                        text = "${item.gemPrice}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                        color = palette.textPrimary,
-                      )
-                    }
-                  }
-                  if (item.coinPrice == 0 && item.gemPrice == 0) {
-                    Text(
-                      text = "Za darmo",
-                      style = MaterialTheme.typography.bodySmall,
-                      color = PixelColors.GreenDark,
-                    )
-                  }
-                }
-
-                // Show "masz: X" in Shop instead of "Użyj" button (per user feedback!)
-                if (item.ownedQuantity > 0) {
-                  Spacer(modifier = Modifier.height(4.dp))
-                  Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = palette.surfaceSubtle,
-                  ) {
-                    Text(
-                      text = "masz: ${item.ownedQuantity}",
-                      style = MaterialTheme.typography.labelMedium,
-                      color = palette.accent,
-                      modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    )
-                  }
-                }
-
-                if (reqAttr != null) {
-                  Spacer(modifier = Modifier.height(4.dp))
-                  Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (attrLocked) {
-                      Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = PixelColors.Red,
-                        modifier = Modifier.size(13.dp),
-                      )
-                      Spacer(modifier = Modifier.width(3.dp))
-                    }
-                    Text(
-                      text = "${reqAttr.name} ≥ ${item.requiredAttrLevel}",
-                      style = MaterialTheme.typography.labelSmall,
-                      color = if (attrLocked) PixelColors.Red else palette.textMuted,
-                    )
-                  }
-                }
-
-                if (period != PurchaseLimitPeriod.UNLIMITED) {
-                  Spacer(modifier = Modifier.height(3.dp))
                   Text(
-                    text = "Limit $boughtCount/${item.limitMaxCount} ${period.label}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (limitReached) PixelColors.Red else palette.textMuted,
+                    text = item.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = if (isUnavailable) palette.textMuted else palette.textPrimary,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                   )
-                }
 
-                if (item.description.isNotBlank()) {
                   Spacer(modifier = Modifier.height(6.dp))
-                  if (item.unlocked) {
+                  ShopPriceBadges(
+                    coinPrice = item.coinPrice,
+                    gemPrice = item.gemPrice,
+                    missingCoins = missingCoins,
+                    missingGems = missingGems,
+                    muted = isUnavailable,
+                  )
+
+                  if (reqAttr != null && !attrLocked) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                      text = "${reqAttr.name} · poziom ${item.requiredAttrLevel}+",
+                      style = MaterialTheme.typography.labelSmall,
+                      color = palette.textMuted,
+                      textAlign = TextAlign.Center,
+                      maxLines = 1,
+                      overflow = TextOverflow.Ellipsis,
+                    )
+                  }
+
+                  if (period != PurchaseLimitPeriod.UNLIMITED && !limitReached) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                      text = "Limit $boughtCount/${item.limitMaxCount} ${period.label}",
+                      style = MaterialTheme.typography.labelSmall,
+                      color = palette.textMuted,
+                    )
+                  }
+
+                  if (item.description.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
                     LinkifiedText(
                       text = item.description,
                       maxLines = 3,
-                    )
-                  } else {
-                    Text(
-                      text = "🔒 Opis i link po zakupie",
-                      style = MaterialTheme.typography.bodySmall,
-                      color = palette.textMuted,
-                      textAlign = TextAlign.Center,
                     )
                   }
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
-                PixelButton(
-                  text = if (limitReached) "Limit" else "Kup",
-                  compact = true,
-                  enabled = !limitReached && !attrLocked && canAfford,
-                  modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("buy_item_${item.id}"),
-                  onClick = { onBuyItem(item) },
-                )
+                if (isUnavailable) {
+                  val desc = buildString {
+                    append("Przedmiot zablokowany")
+                    if (!lockOverlayTitle.isNullOrBlank()) {
+                      append(": ")
+                      append(lockOverlayTitle)
+                    }
+                    if (!lockOverlaySubtitle.isNullOrBlank()) {
+                      append(" (")
+                      append(lockOverlaySubtitle)
+                      append(")")
+                    }
+                  }
+                  PixelLockedButton(
+                    contentDescription = desc,
+                    modifier = Modifier
+                      .fillMaxWidth()
+                      .testTag("buy_item_${item.id}"),
+                  )
+                  if (lockOverlayTitle != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    val reasonAccent = if (attrLocked || limitReached) PixelColors.Red else PixelColors.Warning
+                    Surface(
+                      shape = RoundedCornerShape(8.dp),
+                      color = reasonAccent.copy(alpha = 0.12f),
+                      border = BorderStroke(1.dp, reasonAccent.copy(alpha = 0.4f)),
+                      modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("shop_item_lock_reason_${item.id}"),
+                    ) {
+                      Column(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(1.dp),
+                      ) {
+                        Text(
+                          text = lockOverlayTitle,
+                          style = MaterialTheme.typography.labelSmall,
+                          fontWeight = FontWeight.Bold,
+                          color = reasonAccent,
+                          textAlign = TextAlign.Center,
+                          maxLines = 2,
+                          overflow = TextOverflow.Ellipsis,
+                        )
+                        if (!lockOverlaySubtitle.isNullOrBlank()) {
+                          Text(
+                            text = lockOverlaySubtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = palette.textMuted,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                          )
+                        }
+                      }
+                    }
+                  }
+                } else {
+                  PixelButton(
+                    text = "Kup",
+                    compact = false,
+                    modifier = Modifier
+                      .fillMaxWidth()
+                      .testTag("buy_item_${item.id}"),
+                    onClick = { onBuyItem(item) },
+                  )
+                }
               }
             }
           }
@@ -493,8 +851,8 @@ private fun RewardCatalogDialog(
           val itemsInCat = REWARD_CATALOG_TEMPLATES.filter { it.category == category }
           item(key = "cat_${category.id}") {
             Text(
-              text = "${category.icon} ${category.label.uppercase()}",
-              style = MaterialTheme.typography.labelSmall,
+              text = category.label,
+              style = MaterialTheme.typography.titleSmall,
               fontWeight = FontWeight.Bold,
               color = palette.accent,
               modifier = Modifier.padding(top = 6.dp),
@@ -516,7 +874,7 @@ private fun RewardCatalogDialog(
                   verticalAlignment = Alignment.CenterVertically,
                   horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                  Text(text = tpl.icon, fontSize = 20.sp)
+                  PixelIcon(icon = tpl.icon, size = 22.dp)
                   Column(modifier = Modifier.weight(1f)) {
                     Text(
                       text = tpl.name,
@@ -591,11 +949,121 @@ private fun RewardCatalogDialog(
   )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ShopPriceBadges(
+  coinPrice: Int,
+  gemPrice: Int,
+  modifier: Modifier = Modifier,
+  missingCoins: Boolean = false,
+  missingGems: Boolean = false,
+  muted: Boolean = false,
+) {
+  val palette = LocalGamefyPalette.current
+  val priceDescription = buildString {
+    val parts = mutableListOf<String>()
+    if (coinPrice > 0) parts += "$coinPrice monet"
+    if (gemPrice > 0) parts += "$gemPrice kryształów"
+    if (parts.isEmpty()) append("Za darmo") else append("Cena: ${parts.joinToString(", ")}")
+  }
+
+  FlowRow(
+    modifier = modifier.semantics(mergeDescendants = true) {
+      contentDescription = priceDescription
+    },
+    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+    verticalArrangement = Arrangement.spacedBy(4.dp),
+  ) {
+    if (coinPrice > 0) {
+      val coinBorder = when {
+        missingCoins -> PixelColors.Red.copy(alpha = 0.7f)
+        muted -> palette.divider
+        else -> PixelColors.Gold.copy(alpha = 0.75f)
+      }
+      val coinBg = when {
+        missingCoins -> PixelColors.Red.copy(alpha = 0.12f)
+        muted -> palette.surface
+        else -> PixelColors.Gold.copy(alpha = 0.18f)
+      }
+      Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = coinBg,
+        border = BorderStroke(1.dp, coinBorder),
+      ) {
+        Row(
+          modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          PixelIcon(icon = "coin", size = 16.dp, grayscale = muted && !missingCoins)
+          Text(
+            text = "$coinPrice",
+            fontFamily = PixelFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            color = if (missingCoins) PixelColors.Red else palette.textPrimary,
+          )
+        }
+      }
+    }
+
+    if (gemPrice > 0) {
+      val gemBorder = when {
+        missingGems -> PixelColors.Red.copy(alpha = 0.7f)
+        muted -> palette.divider
+        else -> PixelColors.GemBlue.copy(alpha = 0.75f)
+      }
+      val gemBg = when {
+        missingGems -> PixelColors.Red.copy(alpha = 0.12f)
+        muted -> palette.surface
+        else -> PixelColors.GemBlue.copy(alpha = 0.16f)
+      }
+      Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = gemBg,
+        border = BorderStroke(1.dp, gemBorder),
+      ) {
+        Row(
+          modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          PixelIcon(icon = "gem", size = 16.dp, grayscale = muted && !missingGems)
+          Text(
+            text = "$gemPrice",
+            fontFamily = PixelFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            color = if (missingGems) PixelColors.Red else PixelColors.GemBlue,
+          )
+        }
+      }
+    }
+
+    if (coinPrice == 0 && gemPrice == 0) {
+      Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = PixelColors.Green.copy(alpha = 0.14f),
+        border = BorderStroke(1.dp, PixelColors.Green.copy(alpha = 0.45f)),
+      ) {
+        Text(
+          text = "Za darmo",
+          style = MaterialTheme.typography.labelMedium,
+          fontWeight = FontWeight.Bold,
+          color = PixelColors.GreenDark,
+          modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+        )
+      }
+    }
+  }
+}
+
 @Composable
 fun ShopItemThumbnail(
   imageData: String,
   icon: String,
   sizeDp: Int,
+  grayscale: Boolean = false,
 ) {
   val bitmap = remember(imageData) {
     if (imageData.startsWith("data:image")) {
@@ -606,18 +1074,28 @@ fun ShopItemThumbnail(
       }.getOrNull()
     } else null
   }
+  val grayFilter = remember {
+    ColorFilter.colorMatrix(ColorMatrix().apply { setToSaturation(0f) })
+  }
 
   if (bitmap != null) {
     Image(
       bitmap = bitmap,
       contentDescription = null,
       contentScale = ContentScale.Crop,
+      colorFilter = if (grayscale) grayFilter else null,
       modifier = Modifier
         .size(sizeDp.dp)
+        .alpha(if (grayscale) 0.55f else 1f)
         .clip(RoundedCornerShape(14.dp)),
     )
   } else {
-    PixelIcon(icon = icon, size = sizeDp.dp)
+    PixelIcon(
+      icon = icon,
+      size = sizeDp.dp,
+      grayscale = grayscale,
+      modifier = Modifier.alpha(if (grayscale) 0.58f else 1f),
+    )
   }
 }
 
@@ -650,22 +1128,50 @@ private fun ShopItemEditorRow(
     Row(
       modifier = Modifier.fillMaxWidth(),
       verticalAlignment = Alignment.CenterVertically,
-      horizontalArrangement = Arrangement.spacedBy(8.dp),
+      horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-      ShopItemThumbnail(imageData = item.imageData, icon = item.icon, sizeDp = 36)
-      Text(
-        text = item.name,
-        style = MaterialTheme.typography.titleMedium,
-        modifier = Modifier.weight(1f),
-      )
-      PixelButton(
-        text = if (isExpanded) "Zwiń" else "Edytuj",
-        compact = true,
-        containerColor = palette.surfaceSubtle,
-        contentColor = palette.textPrimary,
-        onClick = onToggleExpand,
-      )
-      IconButton(onClick = onDelete) {
+      Row(
+        modifier = Modifier
+          .weight(1f)
+          .heightIn(min = 48.dp)
+          .clip(RoundedCornerShape(10.dp))
+          .clickable(
+            role = Role.Button,
+            onClickLabel = if (isExpanded) "Zwiń edycję nagrody ${item.name}" else "Rozwiń edycję nagrody ${item.name}",
+            onClick = onToggleExpand,
+          )
+          .testTag("shop_editor_toggle_${item.id}")
+          .padding(horizontal = 4.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+      ) {
+        ShopItemThumbnail(imageData = item.imageData, icon = item.icon, sizeDp = 36)
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = item.name,
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+          Text(
+            text = if (isExpanded) "Dotknij, aby zwinąć" else "Dotknij, aby edytować",
+            style = MaterialTheme.typography.bodySmall,
+            color = palette.textMuted,
+          )
+        }
+        Icon(
+          imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+          contentDescription = if (isExpanded) "Zwiń edycję" else "Rozwiń edycję",
+          tint = palette.accent,
+          modifier = Modifier.size(24.dp),
+        )
+      }
+      IconButton(
+        onClick = onDelete,
+        modifier = Modifier
+          .size(48.dp)
+          .testTag("shop_editor_delete_${item.id}"),
+      ) {
         Icon(
           imageVector = Icons.Default.Delete,
           contentDescription = "Usuń nagrodę",
@@ -718,14 +1224,14 @@ private fun ShopItemEditorRow(
         ExposedDropdownMenuBox(
           expanded = attrMenuExpanded,
           onExpandedChange = { attrMenuExpanded = !attrMenuExpanded },
-          modifier = Modifier.weight(1.3f),
+          modifier = Modifier.weight(1.1f),
         ) {
           val attrName = uiState.attributes.find { it.id == reqAttrId }?.name ?: "Brak"
           OutlinedTextField(
             value = attrName,
             onValueChange = {},
             readOnly = true,
-            label = { Text("Wym. atrybut") },
+            label = { Text("Wymagany atrybut") },
             trailingIcon = {
               ExposedDropdownMenuDefaults.TrailingIcon(expanded = attrMenuExpanded)
             },
@@ -752,10 +1258,10 @@ private fun ShopItemEditorRow(
         OutlinedTextField(
           value = reqLevel,
           onValueChange = { reqLevel = it.filter(Char::isDigit) },
-          label = { Text("Min. poz.") },
+          label = { Text("Wymagany poziom") },
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
           singleLine = true,
-          modifier = Modifier.weight(0.7f),
+          modifier = Modifier.weight(0.9f),
         )
       }
 
@@ -793,7 +1299,7 @@ private fun ShopItemEditorRow(
         OutlinedTextField(
           value = limitMax,
           onValueChange = { limitMax = it.filter(Char::isDigit) },
-          label = { Text("Maks. razy") },
+          label = { Text("Ile razy") },
           enabled = limitPeriod != PurchaseLimitPeriod.UNLIMITED,
           keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
           singleLine = true,
@@ -832,7 +1338,7 @@ private fun ShopItemEditorRow(
         )
         if (item.imageData.isNotEmpty()) {
           PixelButton(
-            text = "Usuń foto",
+            text = "Usuń zdjęcie",
             compact = true,
             containerColor = PixelColors.Red,
             onClick = { onSave(item.copy(imageData = "")) },
@@ -842,13 +1348,13 @@ private fun ShopItemEditorRow(
 
       Spacer(modifier = Modifier.height(10.dp))
       PixelButton(
-        text = "Zapisz zmiany",
+        text = "Zapisz",
         compact = true,
         modifier = Modifier.fillMaxWidth(),
         onClick = {
           onSave(
             item.copy(
-              icon = icon.ifBlank { "🎁" },
+              icon = icon.ifBlank { "gift" },
               name = name.trim().ifBlank { "Nagroda" },
               coinPrice = (coins.toIntOrNull() ?: 0).coerceAtLeast(0),
               gemPrice = (gems.toIntOrNull() ?: 0).coerceAtLeast(0),

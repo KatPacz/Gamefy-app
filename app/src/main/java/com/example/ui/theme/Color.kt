@@ -9,6 +9,10 @@ object PixelColors {
   val GreenDark = Color(0xFF1F8A4C)
   val Gold = Color(0xFFFFC933)
   val Orange = Color(0xFFF59A23)
+  val Amber = Color(0xFFD97706)
+  val AmberLightBg = Color(0xFFFEF3C7)
+  val AmberDarkBg = Color(0xFF3A280A)
+  val AmberInkLight = Color(0xFF451A03)
   val Red = Color(0xFFE5484D)
   val Warning = Color(0xFFE08A00)
   val GemBlue = Color(0xFF3B82F6)
@@ -32,17 +36,17 @@ data class GamefyPalette(
 )
 
 fun paletteForTheme(themeId: AppThemeId): GamefyPalette = when (themeId) {
-  // --- 3 motywy dzienne ---
+  // --- 3 motywy jasne ---
   AppThemeId.VIOLET -> GamefyPalette(
     themeId = themeId,
     background = Color(0xFFF3F1FB),
     surface = Color(0xFFFFFFFF),
     surfaceSubtle = Color(0xFFECE8F9),
     textPrimary = Color(0xFF1D1B2E),
-    textMuted = Color(0xFF6B6882),
+    textMuted = Color(0xFF4F4B66),
     accent = Color(0xFF6C4CF1),
     accentSecondary = Color(0xFFA06BFF),
-    divider = Color(0xFFE2DDF3),
+    divider = Color(0xFFD6CFF0),
     outline = Color(0xFF2B2140),
     isDark = false,
   )
@@ -53,10 +57,10 @@ fun paletteForTheme(themeId: AppThemeId): GamefyPalette = when (themeId) {
     surface = Color(0xFFFFFFFF),
     surfaceSubtle = Color(0xFFE4EFE6),
     textPrimary = Color(0xFF15261B),
-    textMuted = Color(0xFF5F7766),
+    textMuted = Color(0xFF3D5544),
     accent = Color(0xFF2A8A56),
     accentSecondary = Color(0xFF6FBF5F),
-    divider = Color(0xFFD7E7DA),
+    divider = Color(0xFFC9DFCD),
     outline = Color(0xFF1E3224),
     isDark = false,
   )
@@ -67,25 +71,25 @@ fun paletteForTheme(themeId: AppThemeId): GamefyPalette = when (themeId) {
     surface = Color(0xFFFFFFFF),
     surfaceSubtle = Color(0xFFFAE4EA),
     textPrimary = Color(0xFF2B1520),
-    textMuted = Color(0xFF86606F),
+    textMuted = Color(0xFF61404E),
     accent = Color(0xFFD6336C),
     accentSecondary = Color(0xFFFF7A9C),
-    divider = Color(0xFFF2D6E0),
+    divider = Color(0xFFECCBD7),
     outline = Color(0xFF3A1D2B),
     isDark = false,
   )
 
-  // --- 3 motywy nocne ---
+  // --- 3 motywy ciemne ---
   AppThemeId.NIGHT -> GamefyPalette(
     themeId = themeId,
     background = Color(0xFF141222),
     surface = Color(0xFF1F1C33),
     surfaceSubtle = Color(0xFF282442),
     textPrimary = Color(0xFFEEECFA),
-    textMuted = Color(0xFFA7A2C4),
+    textMuted = Color(0xFFB8B3D6),
     accent = Color(0xFF8B6CFF),
     accentSecondary = Color(0xFFC08BFF),
-    divider = Color(0xFF322E4F),
+    divider = Color(0xFF3A355C),
     outline = Color(0xFF0D0B17),
     isDark = true,
   )
@@ -96,11 +100,11 @@ fun paletteForTheme(themeId: AppThemeId): GamefyPalette = when (themeId) {
     surface = Color(0xFF111114),
     surfaceSubtle = Color(0xFF1B1C22),
     textPrimary = Color(0xFFF4F4F6),
-    textMuted = Color(0xFF9797A0),
+    textMuted = Color(0xFFB0B0BA),
     accent = Color(0xFF0D9488),
     accentSecondary = Color(0xFF3B82F6),
-    divider = Color(0xFF26262C),
-    outline = Color(0xFF3A3A44),
+    divider = Color(0xFF31313A),
+    outline = Color(0xFF474754),
     isDark = true,
   )
 
@@ -110,10 +114,10 @@ fun paletteForTheme(themeId: AppThemeId): GamefyPalette = when (themeId) {
     surface = Color(0xFF122038),
     surfaceSubtle = Color(0xFF1B2E4E),
     textPrimary = Color(0xFFEEF5FF),
-    textMuted = Color(0xFF9CB4D4),
+    textMuted = Color(0xFFB0C7E6),
     accent = Color(0xFF0284C7),
     accentSecondary = Color(0xFF38BDF8),
-    divider = Color(0xFF243B61),
+    divider = Color(0xFF2D4773),
     outline = Color(0xFF060C18),
     isDark = true,
   )

@@ -335,7 +335,7 @@ fun computeCoinEconomySummary(
       .groupBy { it.itemName.ifBlank { "Przedmiot" } }
       .map { (name, list) ->
         ShopSpendRank(
-          icon = list.firstOrNull { it.itemIcon.isNotBlank() }?.itemIcon ?: "🎁",
+          icon = list.firstOrNull { it.itemIcon.isNotBlank() }?.itemIcon ?: "gift",
           name = name,
           purchaseCount = list.size,
           totalCoins = list.sumOf { (-it.coinsDelta).coerceAtLeast(0) },

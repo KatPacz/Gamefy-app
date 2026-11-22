@@ -54,6 +54,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -163,19 +165,37 @@ fun RandomSideQuestScreen(
             )
           }
           Column(modifier = Modifier.weight(1f)) {
+            Row(
+              verticalAlignment = Alignment.CenterVertically,
+              horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+              PixelIcon(icon = "sword", size = 20.dp)
+              Text(
+                text = "Tablica Przygód",
+                fontFamily = PixelFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = palette.textPrimary,
+              )
+            }
             Text(
-              text = "⚔️ Tablica Przygód",
-              fontFamily = PixelFontFamily,
-              fontWeight = FontWeight.Bold,
-              fontSize = 18.sp,
-              color = palette.textPrimary,
-            )
-            Text(
-              text = "Dzienny limit: $acceptedCountToday/$RANDOM_SIDE_QUEST_DAILY_LIMIT",
+              text = if (isDailyLimitReached) {
+                "Nowe zadania poboczne jutro"
+              } else {
+                "Limit dzienny zadań pobocznych"
+              },
               style = MaterialTheme.typography.labelSmall,
               color = if (isDailyLimitReached) PixelColors.Red else palette.textMuted,
             )
           }
+
+          DailyLimitCounterBadge(
+            acceptedCount = acceptedCountToday,
+            totalChosenCount = totalChosenCount,
+            maxCount = RANDOM_SIDE_QUEST_DAILY_LIMIT,
+            isDailyLimitReached = isDailyLimitReached,
+            modifier = Modifier.padding(end = 8.dp),
+          )
         }
       }
     },
@@ -205,20 +225,19 @@ fun RandomSideQuestScreen(
               verticalAlignment = Alignment.CenterVertically,
             ) {
               Text(
-                text = "Wybrano: $totalChosenCount/$RANDOM_SIDE_QUEST_DAILY_LIMIT",
+                text = "Na dziś: $totalChosenCount/$RANDOM_SIDE_QUEST_DAILY_LIMIT",
                 fontFamily = PixelFontFamily,
                 fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                color = palette.textPrimary,
+                fontSize = 15.sp,
+                color = if (isDailyLimitReached) PixelColors.Red else palette.textPrimary,
                 modifier = Modifier.testTag("adventure_board_counter"),
               )
-              val statusHint = when {
-                isDailyLimitReached -> "Limit na dziś wykorzystany"
-                acceptedCountToday > 0 && effectivePendingIds.isNotEmpty() ->
-                  "Nowe: ${effectivePendingIds.size} · Przyjęte dziś: $acceptedCountToday"
-                acceptedCountToday > 0 ->
-                  "Pozostało miejsc dziś: $remainingSlots"
-                else -> "Możesz wybrać od 1 do 3 misji"
+              val statusHint = if (isDailyLimitReached) {
+                "Limit dzienny wykorzystany"
+              } else if (effectivePendingIds.isEmpty()) {
+                "Zaznacz zadania do przyjęcia"
+              } else {
+                "Gotowe do dodania"
               }
               Text(
                 text = statusHint,
@@ -227,8 +246,14 @@ fun RandomSideQuestScreen(
               )
             }
 
+            val acceptButtonLabel = when {
+              isAccepting -> "Dodawanie zadań..."
+              effectivePendingIds.isNotEmpty() ->
+                "Przyjmij wybrane (${effectivePendingIds.size}/$remainingSlots)"
+              else -> "Przyjmij wybrane"
+            }
             PixelButton(
-              text = if (isAccepting) "Dodawanie misji..." else "Przyjmij wybrane misje",
+              text = acceptButtonLabel,
               enabled = effectivePendingIds.isNotEmpty() && !isDailyLimitReached && !isAccepting,
               containerColor = PixelColors.Gold,
               contentColor = palette.outline,
@@ -288,6 +313,71 @@ fun RandomSideQuestScreen(
 }
 
 @Composable
+private fun DailyLimitCounterBadge(
+  acceptedCount: Int,
+  totalChosenCount: Int,
+  maxCount: Int,
+  isDailyLimitReached: Boolean,
+  modifier: Modifier = Modifier,
+) {
+  val palette = LocalGamefyPalette.current
+  val bgColor = when {
+    isDailyLimitReached -> PixelColors.Red.copy(alpha = 0.14f)
+    totalChosenCount > acceptedCount -> PixelColors.Gold.copy(alpha = 0.22f)
+    else -> palette.surfaceSubtle
+  }
+  val borderColor = when {
+    isDailyLimitReached -> PixelColors.Red
+    totalChosenCount > acceptedCount -> PixelColors.Gold
+    else -> palette.outline.copy(alpha = 0.55f)
+  }
+  val textColor = when {
+    isDailyLimitReached -> PixelColors.Red
+    else -> palette.textPrimary
+  }
+
+  Surface(
+    shape = RoundedCornerShape(12.dp),
+    color = bgColor,
+    border = BorderStroke(1.5.dp, borderColor),
+    modifier = modifier
+      .semantics(mergeDescendants = true) {
+        contentDescription = "Limit dzienny: $totalChosenCount z $maxCount zadań pobocznych na dziś"
+      }
+      .testTag("adventure_board_daily_limit_badge"),
+  ) {
+    Row(
+      modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+      Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        repeat(maxCount) { index ->
+          val slotColor = when {
+            index < acceptedCount -> PixelColors.Green
+            index < totalChosenCount -> PixelColors.Gold
+            else -> palette.divider
+          }
+          Box(
+            modifier = Modifier
+              .size(8.dp)
+              .clip(RoundedCornerShape(2.dp))
+              .background(slotColor),
+          )
+        }
+      }
+      Text(
+        text = "$totalChosenCount/$maxCount",
+        fontFamily = PixelFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 16.sp,
+        color = textColor,
+      )
+    }
+  }
+}
+
+@Composable
 private fun AdventureBoardHeroBanner(
   acceptedCountToday: Int,
   isDailyLimitReached: Boolean,
@@ -311,15 +401,21 @@ private fun AdventureBoardHeroBanner(
       .padding(16.dp),
   ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+      ) {
+        PixelIcon(icon = "sword", size = 22.dp)
+        Text(
+          text = "Tablica Przygód",
+          fontFamily = PixelFontFamily,
+          fontWeight = FontWeight.Bold,
+          fontSize = 20.sp,
+          color = Color.White,
+        )
+      }
       Text(
-        text = "⚔️ Tablica Przygód",
-        fontFamily = PixelFontFamily,
-        fontWeight = FontWeight.Bold,
-        fontSize = 20.sp,
-        color = Color.White,
-      )
-      Text(
-        text = "Mistrz Gry przygotował dla Ciebie sześć podejrzanych propozycji. Możesz przyjąć maksymalnie trzy. Reszta niech radzi sobie sama.",
+        text = "Mistrz Gry przygotował na dziś sześć propozycji. Wybierz te, na które masz dziś ochotę — pozostałe poczekają na inną okazję.",
         style = MaterialTheme.typography.bodyMedium,
         color = Color.White.copy(alpha = 0.94f),
       )
@@ -345,25 +441,12 @@ private fun AdventureBoardHeroBanner(
               modifier = Modifier.size(18.dp),
             )
             Text(
-              text = "Przyjęto już 3/3 misje na dziś. Kolejne propozycje odblokują się jutro!",
+              text = "Dzisiejszy limit wykorzystany. Nowe zadania poboczne pojawią się jutro.",
               style = MaterialTheme.typography.labelMedium,
               fontWeight = FontWeight.SemiBold,
               color = Color.White,
             )
           }
-        }
-      } else if (acceptedCountToday > 0) {
-        Surface(
-          shape = RoundedCornerShape(10.dp),
-          color = Color.White.copy(alpha = 0.18f),
-        ) {
-          Text(
-            text = "Przyjęto dziś: $acceptedCountToday/$RANDOM_SIDE_QUEST_DAILY_LIMIT · Możesz dobrać jeszcze ${RANDOM_SIDE_QUEST_DAILY_LIMIT - acceptedCountToday}.",
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = Color.White,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-          )
         }
       }
     }
@@ -436,9 +519,10 @@ private fun RandomSideQuestCard(
         Column(
           modifier = Modifier
             .weight(1f)
+            .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onToggleExpand),
-          verticalArrangement = Arrangement.spacedBy(4.dp),
+          verticalArrangement = Arrangement.Center,
         ) {
           Text(
             text = quest.title,
@@ -446,16 +530,6 @@ private fun RandomSideQuestCard(
             fontWeight = FontWeight.Bold,
             color = palette.textPrimary,
           )
-          if (!isExpanded) {
-            Text(
-              text = "„${quest.story}”",
-              style = MaterialTheme.typography.bodySmall,
-              fontStyle = FontStyle.Italic,
-              color = palette.textMuted,
-              maxLines = 2,
-              overflow = TextOverflow.Ellipsis,
-            )
-          }
         }
 
         // Selection toggle (48dp touch target)
@@ -488,11 +562,51 @@ private fun RandomSideQuestCard(
             if (isAlreadyAccepted || isPendingSelected) {
               Icon(
                 imageVector = Icons.Default.Check,
-                contentDescription = if (isAlreadyAccepted) "Przyjęto dziś" else "Wybrano misję",
+                contentDescription = if (isAlreadyAccepted) "Przyjęte dziś" else "Wybrano",
                 tint = if (isAlreadyAccepted) Color.White else palette.outline,
                 modifier = Modifier.size(18.dp),
               )
             }
+          }
+        }
+      }
+
+      // Always-visible quest goal (no click required)
+      Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = palette.background,
+        border = BorderStroke(1.5.dp, palette.accent.copy(alpha = 0.45f)),
+        modifier = Modifier
+          .fillMaxWidth()
+          .testTag("rsq_goal_${quest.id}"),
+      ) {
+        Row(
+          modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+          verticalAlignment = Alignment.Top,
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          Icon(
+            imageVector = Icons.Default.Flag,
+            contentDescription = "Cel zadania",
+            tint = palette.accent,
+            modifier = Modifier
+              .padding(top = 2.dp)
+              .size(18.dp),
+          )
+          Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+              text = "Cel",
+              fontFamily = PixelFontFamily,
+              fontWeight = FontWeight.Bold,
+              fontSize = 14.sp,
+              color = palette.accent,
+            )
+            Text(
+              text = quest.goal,
+              style = MaterialTheme.typography.bodyMedium,
+              fontWeight = FontWeight.Medium,
+              color = palette.textPrimary,
+            )
           }
         }
       }
@@ -578,7 +692,7 @@ private fun RandomSideQuestCard(
             border = BorderStroke(1.dp, PixelColors.Green),
           ) {
             Text(
-              text = "Przyjęto dziś ✓",
+              text = "Przyjęte dziś",
               style = MaterialTheme.typography.labelSmall,
               fontWeight = FontWeight.Bold,
               color = PixelColors.Green,
@@ -592,25 +706,28 @@ private fun RandomSideQuestCard(
       Row(
         modifier = Modifier
           .fillMaxWidth()
-          .heightIn(min = 36.dp)
+          .heightIn(min = 48.dp)
           .clip(RoundedCornerShape(8.dp))
-          .clickable(onClick = onToggleExpand)
+          .clickable(
+            onClickLabel = if (isExpanded) "Ukryj szczegóły" else "Pokaż szczegóły",
+            onClick = onToggleExpand,
+          )
           .testTag("rsq_expand_${quest.id}")
-          .padding(vertical = 4.dp),
+          .padding(horizontal = 6.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
       ) {
         Text(
-          text = if (isExpanded) "Ukryj pełną historię i cel" else "Rozwiń pełną historię i cel",
+          text = if (isExpanded) "Ukryj szczegóły" else "Pokaż szczegóły",
           style = MaterialTheme.typography.labelMedium,
           fontWeight = FontWeight.Bold,
           color = palette.accent,
         )
         Icon(
           imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-          contentDescription = if (isExpanded) "Zwiń szczegóły misji" else "Rozwiń szczegóły misji",
+          contentDescription = if (isExpanded) "Ukryj szczegóły" else "Pokaż szczegóły",
           tint = palette.accent,
-          modifier = Modifier.size(20.dp),
+          modifier = Modifier.size(22.dp),
         )
       }
 
@@ -625,45 +742,10 @@ private fun RandomSideQuestCard(
             color = palette.textPrimary,
           )
 
-          Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = palette.background,
-            border = BorderStroke(1.5.dp, palette.accent.copy(alpha = 0.5f)),
-            modifier = Modifier.fillMaxWidth(),
-          ) {
-            Row(
-              modifier = Modifier.padding(12.dp),
-              verticalAlignment = Alignment.Top,
-              horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-              Icon(
-                imageVector = Icons.Default.Flag,
-                contentDescription = "Cel zadania",
-                tint = palette.accent,
-                modifier = Modifier.size(18.dp),
-              )
-              Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                  text = "CEL ZADANIA",
-                  fontFamily = PixelFontFamily,
-                  fontWeight = FontWeight.Bold,
-                  fontSize = 11.sp,
-                  color = palette.accent,
-                )
-                Text(
-                  text = quest.goal,
-                  style = MaterialTheme.typography.bodyMedium,
-                  fontWeight = FontWeight.Medium,
-                  color = palette.textPrimary,
-                )
-              }
-            }
-          }
-
           if (quest.subtasks.isNotEmpty()) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
               Text(
-                text = "Kroki misji:",
+                text = "Podzadania:",
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.Bold,
                 color = palette.textMuted,

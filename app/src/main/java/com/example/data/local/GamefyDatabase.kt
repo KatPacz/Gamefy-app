@@ -20,7 +20,7 @@ import kotlinx.coroutines.sync.withLock
     ShopItemEntity::class,
     ActivityEventEntity::class,
   ],
-  version = 12,
+  version = 14,
   exportSchema = false,
 )
 abstract class GamefyDatabase : RoomDatabase() {
@@ -156,6 +156,36 @@ abstract class GamefyDatabase : RoomDatabase() {
       }
     }
 
+    val MIGRATION_12_13 = object : Migration(12, 13) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN lastBackupExportTimestamp INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN backupReminderSnoozeUntilTimestamp INTEGER NOT NULL DEFAULT 0")
+      }
+    }
+
+    val MIGRATION_13_14 = object : Migration(13, 14) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN streakFreezeUsedWeekKey INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN comebackAfterBreak INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN currentOnTimeStreak INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN bestOnTimeStreak INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN onTimeTasksDone INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN totalFocusMinutes INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN fullPomodoroCycles INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN spentAllGems INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN wellEarnedRewardBought INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN sideQuestsCompleted INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN fullAdventureBoardDay INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN subtasksCompletedCount INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN orgItemsCreated INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN bulkUpdatesDone INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN backupMonthsCsv TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN completedLastMinute INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN completedNoLettersTask INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN completedSmallTask INTEGER NOT NULL DEFAULT 0")
+      }
+    }
+
     fun getInstance(context: Context): GamefyDatabase {
       return INSTANCE ?: synchronized(this) {
         INSTANCE ?: Room.databaseBuilder(
@@ -175,6 +205,8 @@ abstract class GamefyDatabase : RoomDatabase() {
             MIGRATION_9_10,
             MIGRATION_10_11,
             MIGRATION_11_12,
+            MIGRATION_12_13,
+            MIGRATION_13_14,
           )
           .build()
           .also { INSTANCE = it }
@@ -188,16 +220,16 @@ abstract class GamefyDatabase : RoomDatabase() {
 
         dao.upsertProfile(PlayerProfileEntity(id = 1L, onboardingCompleted = false))
 
-        dao.insertAttribute(AttributeEntity(id = 1L, icon = "💪", name = "Siła"))
-        dao.insertAttribute(AttributeEntity(id = 2L, icon = "📚", name = "Wiedza"))
-        dao.insertAttribute(AttributeEntity(id = 3L, icon = "🌿", name = "Zdrowie"))
-        dao.insertAttribute(AttributeEntity(id = 4L, icon = "🎨", name = "Kreatywność"))
-        dao.insertAttribute(AttributeEntity(id = 5L, icon = "🎯", name = "Dyscyplina"))
+        dao.insertAttribute(AttributeEntity(id = 1L, icon = "dumb", name = "Siła"))
+        dao.insertAttribute(AttributeEntity(id = 2L, icon = "book", name = "Wiedza"))
+        dao.insertAttribute(AttributeEntity(id = 3L, icon = "leaf", name = "Zdrowie"))
+        dao.insertAttribute(AttributeEntity(id = 4L, icon = "palette", name = "Kreatywność"))
+        dao.insertAttribute(AttributeEntity(id = 5L, icon = "target", name = "Dyscyplina"))
 
-        dao.insertFolder(FolderEntity(id = 1L, icon = "🏠", name = "Dom", colorHex = defaultColorHexForFolder("Dom", 1L)))
-        dao.insertFolder(FolderEntity(id = 2L, icon = "💼", name = "Praca", colorHex = defaultColorHexForFolder("Praca", 2L)))
-        dao.insertFolder(FolderEntity(id = 3L, icon = "📚", name = "Nauka", colorHex = defaultColorHexForFolder("Nauka", 3L)))
-        dao.insertFolder(FolderEntity(id = 4L, icon = "💪", name = "Zdrowie", colorHex = defaultColorHexForFolder("Zdrowie", 4L)))
+        dao.insertFolder(FolderEntity(id = 1L, icon = "house", name = "Dom", colorHex = defaultColorHexForFolder("Dom", 1L)))
+        dao.insertFolder(FolderEntity(id = 2L, icon = "brief", name = "Praca", colorHex = defaultColorHexForFolder("Praca", 2L)))
+        dao.insertFolder(FolderEntity(id = 3L, icon = "book", name = "Nauka", colorHex = defaultColorHexForFolder("Nauka", 3L)))
+        dao.insertFolder(FolderEntity(id = 4L, icon = "dumb", name = "Zdrowie", colorHex = defaultColorHexForFolder("Zdrowie", 4L)))
 
         dao.insertTag(TagEntity(id = 1L, name = "pilne"))
         dao.insertTag(TagEntity(id = 2L, name = "ważne"))

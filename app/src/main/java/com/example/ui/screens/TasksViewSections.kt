@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,6 +30,8 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SwapVert
@@ -52,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -135,9 +139,8 @@ fun TaskViewAndSortBar(
           )
           Column(modifier = Modifier.weight(1f)) {
             Text(
-              text = "WIDOK",
+              text = "Widok",
               style = MaterialTheme.typography.labelSmall,
-              fontSize = 9.sp,
               color = palette.textMuted,
             )
             Text(
@@ -212,9 +215,8 @@ fun TaskViewAndSortBar(
         )
         Column(modifier = Modifier.weight(1f)) {
           Text(
-            text = "SORTOWANIE",
+            text = "Sortowanie",
             style = MaterialTheme.typography.labelSmall,
-            fontSize = 9.sp,
             color = palette.textMuted,
           )
           Text(
@@ -231,9 +233,100 @@ fun TaskViewAndSortBar(
   }
 }
 
+@Composable
+fun CollapsibleTaskSectionHeader(
+  title: String,
+  count: Int,
+  expanded: Boolean,
+  onToggle: () -> Unit,
+  modifier: Modifier = Modifier,
+  subtitle: String? = null,
+  accentColor: Color? = null,
+  testTag: String? = null,
+) {
+  val palette = LocalGamefyPalette.current
+  val headerColor = accentColor ?: palette.textPrimary
+  val badgeTint = accentColor ?: palette.textMuted
+
+  Surface(
+    shape = RoundedCornerShape(12.dp),
+    color = if (expanded) Color.Transparent else palette.surface,
+    border = if (expanded) null else BorderStroke(1.5.dp, palette.divider),
+    modifier = modifier
+      .fillMaxWidth()
+      .heightIn(min = 48.dp)
+      .clip(RoundedCornerShape(12.dp))
+      .clickable(
+        role = Role.Button,
+        onClickLabel = if (expanded) "Zwiń sekcję $title" else "Rozwiń sekcję $title",
+        onClick = onToggle,
+      )
+      .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
+  ) {
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = if (expanded) 4.dp else 12.dp, vertical = 10.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+      Column(
+        modifier = Modifier.weight(1f),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+      ) {
+        Text(
+          text = title,
+          fontFamily = PixelFontFamily,
+          fontWeight = FontWeight.Bold,
+          fontSize = 17.sp,
+          color = headerColor,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+        )
+        if (!subtitle.isNullOrBlank()) {
+          Text(
+            text = subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = palette.textMuted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+        }
+      }
+      Spacer(modifier = Modifier.width(8.dp))
+      Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+      ) {
+        Surface(
+          shape = RoundedCornerShape(999.dp),
+          color = badgeTint.copy(alpha = 0.14f),
+        ) {
+          Text(
+            text = "$count",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = badgeTint,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+          )
+        }
+        Icon(
+          imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+          contentDescription = if (expanded) "Zwiń sekcję $title" else "Rozwiń sekcję $title",
+          tint = badgeTint,
+          modifier = Modifier.size(22.dp),
+        )
+      }
+    }
+  }
+}
+
 fun LazyListScope.taskGroupSectionItems(
+  sectionKey: String,
   header: String,
   headerAccent: Color? = null,
+  expanded: Boolean = true,
+  onToggleSection: () -> Unit = {},
   tasks: List<TaskEntity>,
   now: Long,
   uiState: GamefyUiState,
@@ -252,70 +345,69 @@ fun LazyListScope.taskGroupSectionItems(
   onToggleTaskTimer: (Long, Int) -> Unit,
   onResetTaskTimer: (Long, Int) -> Unit,
 ) {
-  item {
-    val palette = LocalGamefyPalette.current
-    Text(
-      text = "$header (${tasks.size})",
-      style = MaterialTheme.typography.titleSmall,
-      color = headerAccent ?: palette.textMuted,
-      modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+  item(key = "section_header_$sectionKey") {
+    CollapsibleTaskSectionHeader(
+      title = header,
+      count = tasks.size,
+      expanded = expanded,
+      onToggle = onToggleSection,
+      accentColor = headerAccent,
+      testTag = "task_section_header_$sectionKey",
     )
   }
-  item {
-    Column(
-      modifier = Modifier.fillMaxWidth(),
-      verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-      tasks.forEach { task ->
-        val isActive = task.startTimestamp <= now
-        Column(
-          modifier = Modifier.fillMaxWidth(),
-          verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-          if (showRewardWorthBadge) {
-            val worth = taskRewardSortValue(task)
-            Row(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-              horizontalArrangement = Arrangement.End,
+  if (expanded) {
+    items(
+      items = tasks,
+      key = { task -> "section_${sectionKey}_task_${task.id}" },
+    ) { task ->
+      val isActive = task.startTimestamp <= now
+      Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+      ) {
+        if (showRewardWorthBadge) {
+          val worth = taskRewardSortValue(task)
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.End,
+          ) {
+            Surface(
+              shape = RoundedCornerShape(6.dp),
+              color = PixelColors.Gold.copy(alpha = 0.16f),
             ) {
-              Surface(
-                shape = RoundedCornerShape(6.dp),
-                color = PixelColors.Gold.copy(alpha = 0.16f),
-              ) {
-                Text(
-                  text = "Wartość nagrody: $worth 🪙",
-                  style = MaterialTheme.typography.labelSmall,
-                  fontWeight = FontWeight.Bold,
-                  color = PixelColors.Warning,
-                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                )
-              }
+              Text(
+                text = "Zdobycz: $worth monet",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = PixelColors.Warning,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+              )
             }
           }
-          TaskCardItem(
-            task = task,
-            folders = uiState.folders,
-            attributes = uiState.attributes,
-            tags = uiState.tags,
-            isActive = isActive,
-            isExpanded = expandedTaskId == task.id,
-            isBulkMode = isBulkMode,
-            isSelected = task.id in selectedTaskIds,
-            inlineTimer = inlineTimer,
-            onToggleExpand = { onToggleExpand(task.id) },
-            onComplete = { if (isActive) onCompleteTask(task) },
-            onToggleSubtask = { subId -> if (isActive) onToggleSubtask(task, subId) },
-            onSkip = { if (isActive) onSkipTask(task) },
-            onGiveUp = { if (isActive) onGiveUpTask(task) },
-            onEdit = { onEditTask(task.id) },
-            onToggleSelect = { onToggleSelect(task.id) },
-            onToggleTaskTimer = { onToggleTaskTimer(task.id, task.durationMinutes) },
-            onResetTaskTimer = { onResetTaskTimer(task.id, task.durationMinutes) },
-            detailPref = OnboardingDetailPref.fromId(uiState.profile.onboardingDetailPref),
-          )
         }
+        TaskCardItem(
+          task = task,
+          folders = uiState.folders,
+          attributes = uiState.attributes,
+          tags = uiState.tags,
+          isActive = isActive,
+          isExpanded = expandedTaskId == task.id,
+          isBulkMode = isBulkMode,
+          isSelected = task.id in selectedTaskIds,
+          inlineTimer = inlineTimer,
+          onToggleExpand = { onToggleExpand(task.id) },
+          onComplete = { if (isActive) onCompleteTask(task) },
+          onToggleSubtask = { subId -> if (isActive) onToggleSubtask(task, subId) },
+          onSkip = { if (isActive) onSkipTask(task) },
+          onGiveUp = { if (isActive) onGiveUpTask(task) },
+          onEdit = { onEditTask(task.id) },
+          onToggleSelect = { onToggleSelect(task.id) },
+          onToggleTaskTimer = { onToggleTaskTimer(task.id, task.durationMinutes) },
+          onResetTaskTimer = { onResetTaskTimer(task.id, task.durationMinutes) },
+          detailPref = OnboardingDetailPref.fromId(uiState.profile.onboardingDetailPref),
+        )
       }
     }
   }
@@ -369,7 +461,7 @@ fun CalendarMonthCard(
           color = palette.textPrimary,
         )
         Text(
-          text = "Wróć do dziś",
+          text = "Dziś",
           style = MaterialTheme.typography.labelSmall,
           color = palette.accent,
           modifier = Modifier
@@ -494,7 +586,7 @@ fun HorizonNavigatorCard(
           color = palette.textPrimary,
         )
         Text(
-          text = "Skocz do dziś",
+          text = "Dziś",
           style = MaterialTheme.typography.labelSmall,
           color = palette.accent,
           modifier = Modifier
@@ -550,7 +642,7 @@ fun RewardSortLegendBanner() {
     ) {
       PixelIcon(icon = "gem", size = 18.dp)
       Text(
-        text = "Sortowanie wg wartości nagrody: 1 💎 = $GEM_COIN_EQUIVALENT 🪙",
+        text = "Sortowanie wg zdobyczy: 1 brylant = $GEM_COIN_EQUIVALENT monet",
         style = MaterialTheme.typography.bodySmall,
         fontWeight = FontWeight.Medium,
         color = palette.textPrimary,

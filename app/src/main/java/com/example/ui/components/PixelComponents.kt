@@ -1,8 +1,10 @@
 package com.example.ui.components
 
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +14,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,11 +31,15 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -45,14 +53,19 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -160,7 +173,7 @@ fun PixelButton(
         Spacer(modifier = Modifier.width(6.dp))
       }
       Text(
-        text = text.uppercase(),
+        text = text,
         fontFamily = PixelFontFamily,
         fontWeight = FontWeight.Bold,
         fontSize = fontSize,
@@ -169,6 +182,48 @@ fun PixelButton(
         overflow = TextOverflow.Ellipsis,
       )
     }
+  }
+}
+
+@Composable
+fun PixelLockedButton(
+  contentDescription: String,
+  modifier: Modifier = Modifier,
+) {
+  val palette = LocalGamefyPalette.current
+  val shape = RoundedCornerShape(12.dp)
+  val bg = if (palette.isDark) Color(0xFF393B4A) else Color(0xFFD5D7E0)
+  val borderColor = if (palette.isDark) Color(0xFF5D6076) else palette.outline.copy(alpha = 0.65f)
+
+  Box(
+    modifier = modifier
+      .heightIn(min = 48.dp)
+      .clip(shape)
+      .background(bg)
+      .border(2.5.dp, borderColor, shape)
+      .drawBehind {
+        // Retro pixel button top highlight & bottom 3D stone/iron ledge
+        drawRect(
+          color = Color.White.copy(alpha = if (palette.isDark) 0.12f else 0.42f),
+          topLeft = Offset(0f, 0f),
+          size = Size(size.width, 4.dp.toPx()),
+        )
+        drawRect(
+          color = Color.Black.copy(alpha = if (palette.isDark) 0.35f else 0.18f),
+          topLeft = Offset(0f, size.height - 4.dp.toPx()),
+          size = Size(size.width, 4.dp.toPx()),
+        )
+      }
+      .semantics(mergeDescendants = true) {
+        this.contentDescription = contentDescription
+      }
+      .padding(horizontal = 12.dp, vertical = 10.dp),
+    contentAlignment = Alignment.Center,
+  ) {
+    PixelIcon(
+      icon = "lock",
+      size = 24.dp,
+    )
   }
 }
 
@@ -223,7 +278,7 @@ fun PixelCheckbox(
       if (checkScale > 0.05f) {
         Icon(
           imageVector = Icons.Default.Check,
-          contentDescription = if (checked) "Wykonane" else "Oznacz jako wykonane",
+          contentDescription = "Wykonane",
           tint = Color.White,
           modifier = Modifier
             .size(boxSize * 0.72f)
@@ -328,7 +383,7 @@ fun TopHudHeader(
 
     Column(modifier = Modifier.weight(1f)) {
       Text(
-        text = "POZIOM ${levelProgress.level} · ${levelProgress.currentExp}/${levelProgress.neededExp} EXP",
+        text = "Poziom ${levelProgress.level} · ${levelProgress.currentExp}/${levelProgress.neededExp} EXP",
         style = MaterialTheme.typography.labelMedium,
         color = palette.textPrimary,
         maxLines = 1,
@@ -444,8 +499,9 @@ fun AchievementPillBanner(
     modifier = modifier
       .widthIn(max = 520.dp)
       .fillMaxWidth()
+      .heightIn(min = 48.dp)
       .clip(pillShape)
-      .clickable(role = Role.Button, onClick = onClick)
+      .clickable(role = Role.Button, onClickLabel = "Zobacz odblokowane osiągnięcie", onClick = onClick)
       .testTag("achievement_pill_banner"),
   ) {
     Row(
@@ -467,14 +523,13 @@ fun AchievementPillBanner(
       Column(modifier = Modifier.weight(1f)) {
         Text(
           text = if (achievement.isSecret) {
-            "TAJNE OSIĄGNIĘCIE ODBLOKOWANE!"
+            "Tajne osiągnięcie odblokowane!"
           } else {
-            "ODBLOKOWANO OSIĄGNIĘCIE!"
+            "Osiągnięcie odblokowane!"
           },
           fontFamily = PixelFontFamily,
           fontWeight = FontWeight.Bold,
-          fontSize = 10.sp,
-          letterSpacing = 0.5.sp,
+          fontSize = 13.sp,
           color = PixelColors.Gold,
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
@@ -503,15 +558,333 @@ fun AchievementPillBanner(
         shape = RoundedCornerShape(50),
         color = Color.White.copy(alpha = 0.14f),
       ) {
-        Text(
-          text = "Zobacz ›",
-          fontFamily = PixelFontFamily,
-          fontWeight = FontWeight.Bold,
-          fontSize = 11.sp,
-          color = Color.White,
-          modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-        )
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(2.dp),
+          modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+        ) {
+          Text(
+            text = "Zobacz",
+            fontFamily = PixelFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            color = Color.White,
+          )
+          Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(16.dp),
+          )
+        }
       }
     }
   }
 }
+
+@Composable
+fun PixelSectionHeader(
+  title: String,
+  modifier: Modifier = Modifier,
+  subtitle: String? = null,
+  badgeText: String? = null,
+  titleColor: Color = LocalGamefyPalette.current.textPrimary,
+  badgeBgColor: Color = LocalGamefyPalette.current.surfaceSubtle,
+  badgeTextColor: Color = LocalGamefyPalette.current.textMuted,
+  leading: (@Composable () -> Unit)? = null,
+  trailing: (@Composable () -> Unit)? = null,
+) {
+  val palette = LocalGamefyPalette.current
+  Column(
+    modifier = modifier.fillMaxWidth(),
+    verticalArrangement = Arrangement.spacedBy(2.dp),
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+      Row(
+        modifier = Modifier.weight(1f),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+      ) {
+        if (leading != null) {
+          leading()
+        }
+        Text(
+          text = title,
+          fontFamily = PixelFontFamily,
+          fontWeight = FontWeight.Bold,
+          fontSize = 17.sp,
+          color = titleColor,
+          maxLines = 1,
+          overflow = TextOverflow.Ellipsis,
+          modifier = Modifier.weight(1f, fill = false),
+        )
+      }
+      if (badgeText != null || trailing != null) {
+        Spacer(modifier = Modifier.width(8.dp))
+        Row(
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+          if (badgeText != null) {
+            Surface(
+              shape = RoundedCornerShape(999.dp),
+              color = badgeBgColor,
+            ) {
+              Text(
+                text = badgeText,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = badgeTextColor,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+              )
+            }
+          }
+          if (trailing != null) {
+            trailing()
+          }
+        }
+      }
+    }
+    if (!subtitle.isNullOrBlank()) {
+      Text(
+        text = subtitle,
+        style = MaterialTheme.typography.bodySmall,
+        color = palette.textMuted,
+      )
+    }
+  }
+}
+
+@Composable
+fun PixelEmptyStateCard(
+  @DrawableRes illustrationRes: Int,
+  illustrationContentDescription: String,
+  title: String,
+  subtitle: String,
+  modifier: Modifier = Modifier,
+  primaryActionLabel: String? = null,
+  onPrimaryAction: (() -> Unit)? = null,
+  primaryActionTestTag: String? = null,
+  secondaryActionLabel: String? = null,
+  onSecondaryAction: (() -> Unit)? = null,
+  secondaryActionTestTag: String? = null,
+  illustrationSize: Dp = 132.dp,
+) {
+  val palette = LocalGamefyPalette.current
+  PixelCard(modifier = modifier) {
+    Column(
+      modifier = Modifier
+        .fillMaxWidth()
+        .padding(vertical = 12.dp, horizontal = 4.dp),
+      horizontalAlignment = Alignment.CenterHorizontally,
+      verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+      Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = palette.surfaceSubtle,
+        border = BorderStroke(2.5.dp, palette.outline),
+        shadowElevation = 2.dp,
+        modifier = Modifier.size(illustrationSize),
+      ) {
+        Image(
+          painter = painterResource(id = illustrationRes),
+          contentDescription = illustrationContentDescription,
+          contentScale = ContentScale.Crop,
+          modifier = Modifier.fillMaxWidth(),
+        )
+      }
+
+      Spacer(modifier = Modifier.height(2.dp))
+
+      Text(
+        text = title,
+        fontFamily = PixelFontFamily,
+        fontWeight = FontWeight.Bold,
+        fontSize = 20.sp,
+        color = palette.textPrimary,
+        textAlign = TextAlign.Center,
+      )
+
+      Text(
+        text = subtitle,
+        style = MaterialTheme.typography.bodyMedium,
+        color = palette.textMuted,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.widthIn(max = 420.dp),
+      )
+
+      if (primaryActionLabel != null && onPrimaryAction != null) {
+        Spacer(modifier = Modifier.height(4.dp))
+        Column(
+          modifier = Modifier
+            .fillMaxWidth()
+            .widthIn(max = 320.dp),
+          verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          PixelButton(
+            text = primaryActionLabel,
+            compact = false,
+            modifier = Modifier
+              .fillMaxWidth()
+              .let { base -> if (primaryActionTestTag != null) base.testTag(primaryActionTestTag) else base },
+            onClick = onPrimaryAction,
+          )
+          if (secondaryActionLabel != null && onSecondaryAction != null) {
+            PixelButton(
+              text = secondaryActionLabel,
+              compact = false,
+              containerColor = palette.surfaceSubtle,
+              contentColor = palette.textPrimary,
+              modifier = Modifier
+                .fillMaxWidth()
+                .let { base -> if (secondaryActionTestTag != null) base.testTag(secondaryActionTestTag) else base },
+              onClick = onSecondaryAction,
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
+data class ActiveFilterChipItem(
+  val key: String,
+  val label: String,
+  val onRemove: () -> Unit,
+  val testTag: String,
+)
+
+@Composable
+fun SearchFilterIconButton(
+  activeCount: Int,
+  isOpen: Boolean,
+  onClick: () -> Unit,
+  testTag: String,
+  modifier: Modifier = Modifier,
+  contentDescription: String = "Szukaj i filtruj",
+) {
+  val palette = LocalGamefyPalette.current
+  val highlighted = isOpen || activeCount > 0
+  Surface(
+    shape = RoundedCornerShape(10.dp),
+    color = if (highlighted) palette.accent.copy(alpha = 0.16f) else palette.surface,
+    border = BorderStroke(2.dp, if (highlighted) palette.accent else palette.outline),
+    modifier = modifier
+      .heightIn(min = 48.dp)
+      .widthIn(min = 48.dp)
+      .clip(RoundedCornerShape(10.dp))
+      .clickable(
+        role = Role.Button,
+        onClickLabel = contentDescription,
+        onClick = onClick,
+      )
+      .testTag(testTag),
+  ) {
+    Row(
+      modifier = Modifier.padding(horizontal = if (activeCount > 0) 10.dp else 12.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+      Icon(
+        imageVector = Icons.Default.Search,
+        contentDescription = contentDescription,
+        tint = if (highlighted) palette.accent else palette.textPrimary,
+        modifier = Modifier.size(22.dp),
+      )
+      if (activeCount > 0) {
+        Surface(
+          shape = CircleShape,
+          color = palette.accent,
+        ) {
+          Text(
+            text = "$activeCount",
+            fontFamily = PixelFontFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            color = palette.onAccent,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+          )
+        }
+      }
+    }
+  }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ActiveFilterChipsRow(
+  chips: List<ActiveFilterChipItem>,
+  onClearAll: () -> Unit,
+  modifier: Modifier = Modifier,
+  clearButtonTestTag: String = "clear_all_filters_button",
+) {
+  if (chips.isEmpty()) return
+  val palette = LocalGamefyPalette.current
+  FlowRow(
+    modifier = modifier
+      .fillMaxWidth()
+      .widthIn(max = 640.dp)
+      .padding(horizontal = 16.dp, vertical = 4.dp),
+    horizontalArrangement = Arrangement.spacedBy(6.dp),
+    verticalArrangement = Arrangement.spacedBy(6.dp),
+  ) {
+    chips.forEach { chip ->
+      Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = palette.accent.copy(alpha = 0.14f),
+        border = BorderStroke(1.5.dp, palette.accent.copy(alpha = 0.55f)),
+        modifier = Modifier
+          .heightIn(min = 38.dp)
+          .clip(RoundedCornerShape(999.dp))
+          .clickable(
+            role = Role.Button,
+            onClickLabel = "Usuń filtr ${chip.label}",
+            onClick = chip.onRemove,
+          )
+          .testTag(chip.testTag),
+      ) {
+        Row(
+          modifier = Modifier.padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+          verticalAlignment = Alignment.CenterVertically,
+          horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+          Text(
+            text = chip.label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = palette.accent,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+          )
+          Icon(
+            imageVector = Icons.Default.Close,
+            contentDescription = "Usuń filtr ${chip.label}",
+            tint = palette.accent,
+            modifier = Modifier.size(16.dp),
+          )
+        }
+      }
+    }
+
+    TextButton(
+      onClick = onClearAll,
+      contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+      modifier = Modifier
+        .heightIn(min = 38.dp)
+        .testTag(clearButtonTestTag),
+    ) {
+      Text(
+        text = "Wyczyść filtry",
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        color = PixelColors.Red,
+      )
+    }
+  }
+}
+
+
