@@ -14,26 +14,28 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private val PIXEL_PALETTE = mapOf(
-  'k' to Color(0xFF2B2140),
-  'w' to Color(0xFFFFFFFF),
-  'y' to Color(0xFFFFC933),
-  'o' to Color(0xFFF59A23),
-  'r' to Color(0xFFE5484D),
-  'p' to Color(0xFFFF8FA3),
-  'b' to Color(0xFF3B82F6),
-  'c' to Color(0xFF7DD3FC),
-  'g' to Color(0xFF34C759),
-  'd' to Color(0xFF1F8A4C),
-  'n' to Color(0xFFA8672B),
-  's' to Color(0xFF6B3E1B),
-  't' to Color(0xFFF2C28B),
-  'v' to Color(0xFF8B5CF6),
-  'e' to Color(0xFF9AA3B2),
-  'l' to Color(0xFFD8DDE6),
+internal val PIXEL_PALETTE_ARGB: Map<Char, Int> = mapOf(
+  'k' to 0xFF2B2140.toInt(),
+  'w' to 0xFFFFFFFF.toInt(),
+  'y' to 0xFFFFC933.toInt(),
+  'o' to 0xFFF59A23.toInt(),
+  'r' to 0xFFE5484D.toInt(),
+  'p' to 0xFFFF8FA3.toInt(),
+  'b' to 0xFF3B82F6.toInt(),
+  'c' to 0xFF7DD3FC.toInt(),
+  'g' to 0xFF34C759.toInt(),
+  'd' to 0xFF1F8A4C.toInt(),
+  'n' to 0xFFA8672B.toInt(),
+  's' to 0xFF6B3E1B.toInt(),
+  't' to 0xFFF2C28B.toInt(),
+  'v' to 0xFF8B5CF6.toInt(),
+  'e' to 0xFF9AA3B2.toInt(),
+  'l' to 0xFFD8DDE6.toInt(),
 )
 
-private val PIXEL_SPRITES = mapOf(
+private val PIXEL_PALETTE = PIXEL_PALETTE_ARGB.mapValues { (_, argb) -> Color(argb) }
+
+internal val PIXEL_SPRITES = mapOf(
   "star" to ".....kk.....|....kyyk....|....kyyk....|kkkkkyykkkkk|kyyyyyyyyyyk|.kyyyyyyyyk.|..kyyyyyyk..|..kyyyyyyk..|.kyyykkyyyk.|.kyk....kyk.|.kk......kk.",
   "coin" to "...kkkkkk...|..kyyyyyyk..|.kyyyooyyyk.|kyyyoyyoyyyk|kyyoyyyyoyyk|kyyoyyyyoyyk|kyyoyyyyoyyk|kyyoyyyyoyyk|kyyyoyyoyyyk|.kyyyooyyyk.|..kyyyyyyk..|...kkkkkk...",
   "heart" to "..kkk..kkk..|.krrrkkrrrk.|krwrrrrrrrrk|krwrrrrrrrrk|krrrrrrrrrrk|.krrrrrrrrk.|..krrrrrrk..|...krrrrk...|....krrk....|.....kk.....",
@@ -67,6 +69,12 @@ private val PIXEL_SPRITES = mapOf(
   "lock" to "...kkkkkk...|..kllleekk..|..kl....ek..|..ke....ek..|.kkkkkkkkkk.|.kyyywyyyyk.|.kyyykkyyok.|.kyyykkyyok.|.kooooooook.|.kkkkkkkkkk.",
   "sparkle" to ".....kk.....|.....kyk....|....kyyyk...|...kyywyk...|kkkkyywykkkk|kyyyyyyyyyyk|kkkkyywykkkk|...kyywyk...|....kyyyk...|.....kyk....|.....kk.....|............",
   "freeze" to ".....kk.....|....kcck....|..k.kcck.k..|.kckkwwkkck.|..kccwwcck..|kccwwwwwwcck|kccwwwwwwcck|..kccwwcck..|.kckkwwkkck.|..k.kcck.k..|....kcck....|.....kk.....",
+  "plus" to "....kkkk....|....kwwk....|....kwwk....|....kwwk....|kkkkkwwkkkkk|kwwwwwwwwwwk|kwwwwwwwwwwk|kkkkkwwkkkkk|....kwwk....|....kwwk....|....kwwk....|....kkkk....",
+  "play" to "..kk........|..kkk.......|..kwwk......|..kwwwk.....|..kwwwwk....|..kwwwwwk...|..kwwwwwk...|..kwwwwk....|..kwwwk.....|..kwwk......|..kkk.......|..kk........",
+  "pause" to ".kkkk..kkkk.|.kwwk..kwwk.|.kwwk..kwwk.|.kwwk..kwwk.|.kwwk..kwwk.|.kwwk..kwwk.|.kwwk..kwwk.|.kwwk..kwwk.|.kwwk..kwwk.|.kwwk..kwwk.|.kwwk..kwwk.|.kkkk..kkkk.",
+  "reset" to "...kkkkkk...|..kwwwwwkk..|.kwwk..kwwk.|kwwk....kwwk|kwwk........|kwwk...kkkk.|kwwk....kwwk|.kwwk..kwwk.|..kwwwwwkk..|...kkkkkk...|............|............",
+  "checkbox_empty" to ".kkkkkkkkkk.|k..........k|k..........k|k..........k|k..........k|k..........k|k..........k|k..........k|k..........k|k..........k|k..........k|.kkkkkkkkkk.",
+  "checkbox_done" to ".kkkkkkkkkk.|kggggggggggk|kggggggggggk|kgggggggwwgk|kggggggwwggk|kggwggwwgggk|kggwwwwggggk|kgggwwgggggk|kggggggggggk|kggggggggggk|kggggggggggk|.kkkkkkkkkk.",
 )
 
 private val EMOJI_TO_SPRITE = mapOf(

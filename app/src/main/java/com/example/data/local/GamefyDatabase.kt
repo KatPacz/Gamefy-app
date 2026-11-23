@@ -20,7 +20,7 @@ import kotlinx.coroutines.sync.withLock
     ShopItemEntity::class,
     ActivityEventEntity::class,
   ],
-  version = 14,
+  version = 15,
   exportSchema = false,
 )
 abstract class GamefyDatabase : RoomDatabase() {
@@ -186,6 +186,12 @@ abstract class GamefyDatabase : RoomDatabase() {
       }
     }
 
+    val MIGRATION_14_15 = object : Migration(14, 15) {
+      override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE player_profile ADD COLUMN tutorialPending INTEGER NOT NULL DEFAULT 0")
+      }
+    }
+
     fun getInstance(context: Context): GamefyDatabase {
       return INSTANCE ?: synchronized(this) {
         INSTANCE ?: Room.databaseBuilder(
@@ -207,6 +213,7 @@ abstract class GamefyDatabase : RoomDatabase() {
             MIGRATION_11_12,
             MIGRATION_12_13,
             MIGRATION_13_14,
+            MIGRATION_14_15,
           )
           .build()
           .also { INSTANCE = it }

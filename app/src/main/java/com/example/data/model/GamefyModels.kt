@@ -71,6 +71,15 @@ enum class AppThemeId(
   }
 }
 
+const val THEME_CODE_SYSTEM = "system"
+
+fun resolveEffectiveThemeId(themeCode: String, isSystemDark: Boolean): AppThemeId =
+  if (themeCode.isBlank() || themeCode == THEME_CODE_SYSTEM) {
+    if (isSystemDark) AppThemeId.NIGHT else AppThemeId.VIOLET
+  } else {
+    AppThemeId.fromCode(themeCode)
+  }
+
 enum class AppFontSize(val code: String, val label: String, val scale: Float) {
   SMALL("small", "Mała", 0.88f),
   DEFAULT("default", "Domyślna", 1.0f),

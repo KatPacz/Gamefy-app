@@ -63,6 +63,8 @@ import com.example.ui.components.PixelCard
 import com.example.ui.components.PixelEmptyStateCard
 import com.example.ui.components.PixelSectionHeader
 import com.example.ui.components.SearchFilterIconButton
+import com.example.ui.components.TutorialTargetIds
+import com.example.ui.components.tutorialTarget
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelFontFamily
 
@@ -169,7 +171,9 @@ fun ChestScreen(
         primaryActionLabel = "Przejdź do sklepu",
         onPrimaryAction = onOpenShop,
         primaryActionTestTag = "empty_chest_go_to_shop_button",
-        modifier = Modifier.widthIn(max = 560.dp),
+        modifier = Modifier
+          .widthIn(max = 560.dp)
+          .tutorialTarget(TutorialTargetIds.CHEST_CONTENT),
       )
     }
     return
@@ -183,7 +187,8 @@ fun ChestScreen(
       modifier = Modifier
         .widthIn(max = 640.dp)
         .fillMaxWidth()
-        .padding(horizontal = 16.dp, vertical = 8.dp),
+        .padding(horizontal = 16.dp, vertical = 8.dp)
+        .tutorialTarget(TutorialTargetIds.CHEST_CONTENT),
       horizontalArrangement = Arrangement.spacedBy(8.dp),
       verticalAlignment = Alignment.CenterVertically,
     ) {

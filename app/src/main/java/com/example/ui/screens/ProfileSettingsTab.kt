@@ -146,6 +146,7 @@ fun LazyListScope.profileSettingsItems(
   onSaveBackup: () -> Unit,
   onLoadBackup: () -> Unit,
   onSelectTheme: (AppThemeId) -> Unit,
+  onSelectSystemTheme: () -> Unit = {},
   onSelectFontSize: (AppFontSize) -> Unit,
   onSelectFontFamily: (AppFontFamilyOption) -> Unit,
   onSelectWordSpacing: (AppWordSpacing) -> Unit,
@@ -231,10 +232,12 @@ fun LazyListScope.profileSettingsItems(
   item(key = "settings_appearance_card") {
     SettingsAppearanceAndReadabilityCard(
       selectedTheme = uiState.themeId,
+      usesSystemTheme = uiState.usesSystemTheme,
       selectedFontSize = uiState.fontSize,
       selectedFontFamily = uiState.fontFamilyOption,
       selectedWordSpacing = uiState.wordSpacing,
       onSelectTheme = onSelectTheme,
+      onSelectSystemTheme = onSelectSystemTheme,
       onSelectFontSize = onSelectFontSize,
       onSelectFontFamily = onSelectFontFamily,
       onSelectWordSpacing = onSelectWordSpacing,
@@ -493,10 +496,12 @@ private fun SettingsReadyTasksCard(
 @Composable
 private fun SettingsAppearanceAndReadabilityCard(
   selectedTheme: AppThemeId,
+  usesSystemTheme: Boolean,
   selectedFontSize: AppFontSize,
   selectedFontFamily: AppFontFamilyOption,
   selectedWordSpacing: AppWordSpacing,
   onSelectTheme: (AppThemeId) -> Unit,
+  onSelectSystemTheme: () -> Unit,
   onSelectFontSize: (AppFontSize) -> Unit,
   onSelectFontFamily: (AppFontFamilyOption) -> Unit,
   onSelectWordSpacing: (AppWordSpacing) -> Unit,
@@ -504,7 +509,7 @@ private fun SettingsAppearanceAndReadabilityCard(
   val palette = LocalGamefyPalette.current
 
   PixelCard {
-    // 1. Motyw kolorystyczny: 3-column miniature preview grid
+    // 1. Motyw kolorystyczny: System Auto + 3-column miniature preview grid
     Text(
       text = "Motyw kolorystyczny",
       style = MaterialTheme.typography.titleSmall,
@@ -512,6 +517,58 @@ private fun SettingsAppearanceAndReadabilityCard(
       color = palette.textPrimary,
     )
     Spacer(modifier = Modifier.height(10.dp))
+
+    Surface(
+      shape = RoundedCornerShape(12.dp),
+      color = if (usesSystemTheme) palette.accent.copy(alpha = 0.14f) else palette.surfaceSubtle,
+      border = BorderStroke(
+        width = if (usesSystemTheme || palette.isHighContrast) 2.dp else 1.dp,
+        color = if (usesSystemTheme) palette.accent else palette.divider,
+      ),
+      modifier = Modifier
+        .fillMaxWidth()
+        .heightIn(min = 56.dp)
+        .clip(RoundedCornerShape(12.dp))
+        .clickable(
+          role = Role.RadioButton,
+          onClickLabel = "Motyw domyślny systemu",
+        ) { onSelectSystemTheme() }
+        .semantics { selected = usesSystemTheme }
+        .testTag("theme_system"),
+    ) {
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(start = 12.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+      ) {
+        Column(modifier = Modifier.weight(1f)) {
+          Text(
+            text = "Domyślny systemu (Dzień / Noc)",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = palette.textPrimary,
+          )
+          Text(
+            text = "Automatycznie przełącza jasny (Fiolet) i ciemny (Noc) zgodnie z ustawieniem telefonu.",
+            style = MaterialTheme.typography.bodySmall,
+            fontSize = 12.5.sp,
+            color = palette.textMuted,
+          )
+        }
+        RadioButton(
+          selected = usesSystemTheme,
+          onClick = onSelectSystemTheme,
+          colors = RadioButtonDefaults.colors(
+            selectedColor = palette.accent,
+            unselectedColor = palette.textMuted,
+          ),
+        )
+      }
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
 
     val themeGroups = remember {
       listOf(
@@ -542,7 +599,7 @@ private fun SettingsAppearanceAndReadabilityCard(
           rowThemes.forEach { theme ->
             ThemeMiniPreviewTile(
               theme = theme,
-              selected = selectedTheme == theme,
+              selected = !usesSystemTheme && selectedTheme == theme,
               onClick = { onSelectTheme(theme) },
               modifier = Modifier.weight(1f),
             )

@@ -73,6 +73,8 @@ import com.example.data.model.resolveBoardTemplates
 import com.example.data.model.resolveDailyBoardIds
 import com.example.ui.components.PixelButton
 import com.example.ui.components.PixelIcon
+import com.example.ui.components.TutorialTargetIds
+import com.example.ui.components.tutorialTarget
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
 import com.example.ui.theme.PixelFontFamily
@@ -194,7 +196,9 @@ fun RandomSideQuestScreen(
             totalChosenCount = totalChosenCount,
             maxCount = RANDOM_SIDE_QUEST_DAILY_LIMIT,
             isDailyLimitReached = isDailyLimitReached,
-            modifier = Modifier.padding(end = 8.dp),
+            modifier = Modifier
+              .padding(end = 8.dp)
+              .tutorialTarget(TutorialTargetIds.SIDE_QUEST_LIMIT),
           )
         }
       }

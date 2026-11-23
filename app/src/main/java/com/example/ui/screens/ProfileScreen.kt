@@ -123,6 +123,7 @@ fun ProfileScreen(
   uiState: GamefyUiState,
   scrollToAchievementsTrigger: Int = 0,
   scrollToNotificationsTrigger: Int = 0,
+  scrollToBackupTrigger: Int = 0,
   onAddAttribute: (String, String) -> Unit,
   onUpdateAttribute: (AttributeEntity) -> Unit,
   onDeleteAttribute: (Long) -> Unit,
@@ -133,6 +134,7 @@ fun ProfileScreen(
   onUpdateTag: (TagEntity) -> Unit,
   onDeleteTag: (Long) -> Unit,
   onSelectTheme: (AppThemeId) -> Unit,
+  onSelectSystemTheme: () -> Unit = {},
   onSelectFontSize: (AppFontSize) -> Unit = {},
   onSelectFontFamily: (AppFontFamilyOption) -> Unit = {},
   onSelectWordSpacing: (AppWordSpacing) -> Unit = {},
@@ -180,6 +182,18 @@ fun ProfileScreen(
       withFrameNanos { }
       val targetIdx = settingsSectionIndex(
         section = ProfileSettingsSection.NOTIFICATIONS,
+        hasBackupWarningBanner = hasBackupWarningBanner,
+      )
+      listState.animateScrollToItem(targetIdx)
+    }
+  }
+
+  LaunchedEffect(scrollToBackupTrigger) {
+    if (scrollToBackupTrigger > 0) {
+      selectedTab = ProfileSubTab.SETTINGS
+      withFrameNanos { }
+      val targetIdx = settingsSectionIndex(
+        section = ProfileSettingsSection.BACKUP,
         hasBackupWarningBanner = hasBackupWarningBanner,
       )
       listState.animateScrollToItem(targetIdx)
@@ -490,6 +504,7 @@ fun ProfileScreen(
                 importLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
               },
               onSelectTheme = onSelectTheme,
+              onSelectSystemTheme = onSelectSystemTheme,
               onSelectFontSize = onSelectFontSize,
               onSelectFontFamily = onSelectFontFamily,
               onSelectWordSpacing = onSelectWordSpacing,

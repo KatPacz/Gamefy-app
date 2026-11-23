@@ -1,3 +1,12 @@
 <resources>
     <string name="app_name">Gamefy</string>
+    <string name="widget_today_tasks_label">Dzisiejsze zadania</string>
+    <string name="widget_today_tasks_desc">Lista najbliższych zadań na dziś z szybkim ukończeniem i cofaniem.</string>
+    <string name="widget_timer_label">Pomodoro i Timer</string>
+    <string name="widget_timer_desc">Aktualna faza skupienia lub przerwy z odliczaniem i przyciskiem Start/Pauza.</string>
+    <string name="widget_quick_add_label">Szybkie dodawanie</string>
+    <string name="widget_quick_add_desc">Otwórz edytor nowego zadania jednym dotknięciem.</string>
+    <string name="widget_complete_task_desc">Oznacz zadanie jako wykonane</string>
+    <string name="widget_timer_toggle_desc">Rozpocznij lub wstrzymaj odliczanie</string>
+    <string name="widget_timer_reset_desc">Zresetuj timer</string>
 </resources>

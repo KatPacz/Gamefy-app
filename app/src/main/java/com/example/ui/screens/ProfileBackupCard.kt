@@ -35,6 +35,8 @@ import com.example.data.model.isBackupOverdueWarning
 import com.example.ui.components.PixelButton
 import com.example.ui.components.PixelCard
 import com.example.ui.components.PixelIcon
+import com.example.ui.components.TutorialTargetIds
+import com.example.ui.components.tutorialTarget
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
 
@@ -256,7 +258,11 @@ fun SettingsBackupSectionCard(
     palette.textPrimary
   }
 
-  PixelCard(modifier = modifier.testTag("settings_backup_section_card")) {
+  PixelCard(
+    modifier = modifier
+      .tutorialTarget(TutorialTargetIds.BACKUP_CARD)
+      .testTag("settings_backup_section_card"),
+  ) {
     Surface(
       shape = RoundedCornerShape(12.dp),
       color = statusBg,

@@ -106,6 +106,8 @@ import com.example.ui.components.PixelIcon
 import com.example.ui.components.PixelLockedButton
 import com.example.ui.components.PixelSectionHeader
 import com.example.ui.components.SearchFilterIconButton
+import com.example.ui.components.TutorialTargetIds
+import com.example.ui.components.tutorialTarget
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
 import com.example.ui.theme.PixelFontFamily
@@ -307,7 +309,8 @@ fun ShopScreen(
       modifier = Modifier
         .widthIn(max = 640.dp)
         .fillMaxWidth()
-        .padding(horizontal = 16.dp, vertical = 8.dp),
+        .padding(horizontal = 16.dp, vertical = 8.dp)
+        .tutorialTarget(TutorialTargetIds.SHOP_ACTIONS),
       horizontalArrangement = Arrangement.spacedBy(8.dp),
       verticalAlignment = Alignment.CenterVertically,
     ) {

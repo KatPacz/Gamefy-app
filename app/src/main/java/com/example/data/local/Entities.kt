@@ -16,7 +16,7 @@ data class PlayerProfileEntity(
   val coinsEarned: Int = 0,
   val itemsBought: Int = 0,
   val notificationsEnabled: Boolean = false,
-  val themeCode: String = "violet",
+  val themeCode: String = com.example.data.model.THEME_CODE_SYSTEM,
   val unlockedAchievementsCsv: String = "",
   val currentStreak: Int = 0,
   val bestStreak: Int = 0,
@@ -70,6 +70,7 @@ data class PlayerProfileEntity(
   val completedLastMinute: Boolean = false,
   val completedNoLettersTask: Boolean = false,
   val completedSmallTask: Boolean = false,
+  val tutorialPending: Boolean = false,
 )
 
 @Entity(tableName = "attributes")

@@ -1,6 +1,14 @@
 package com.example.ui.screens
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -21,10 +29,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
@@ -37,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -363,6 +374,34 @@ private fun MainTimerCard(
 ) {
   val palette = LocalGamefyPalette.current
   val shape = RoundedCornerShape(22.dp)
+  var isTimerEditorVisible by rememberSaveable { mutableStateOf(false) }
+
+  LaunchedEffect(timerState.mode, timerState.isRunning) {
+    if (timerState.mode != MainTimerMode.TIMER || timerState.isRunning) {
+      isTimerEditorVisible = false
+    }
+  }
+
+  val isPaused = !timerState.isRunning &&
+    timerState.remainingSeconds in 1 until timerState.totalSeconds
+  val isCountdownActive = timerState.isRunning || isPaused
+
+  // Active countdown ring color with high contrast against every theme's card gradient
+  val activeRingColor = if (palette.themeId == com.example.data.model.AppThemeId.HIGH_CONTRAST_NIGHT) {
+    Color(0xFF1A1A1A)
+  } else {
+    PixelColors.Gold
+  }
+  val ringBaseColor by animateColorAsState(
+    targetValue = if (isCountdownActive) activeRingColor else Color.White,
+    animationSpec = tween(durationMillis = 320),
+    label = "timer_ring_base_color",
+  )
+  val animatedElapsedFraction by animateFloatAsState(
+    targetValue = if (isCountdownActive) timerState.progressFraction else 0f,
+    animationSpec = tween(durationMillis = 280),
+    label = "timer_ring_elapsed_fraction",
+  )
 
   Box(
     modifier = Modifier
@@ -377,14 +416,49 @@ private fun MainTimerCard(
       horizontalAlignment = Alignment.CenterHorizontally,
       verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-      // Przycisk zwijania, niezależny od samego odliczania.
+      // Top row: [Pomodoro | Timer] switcher + compact collapse button right next to "Timer"
       Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
       ) {
         Row(
           modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
+            .weight(1f)
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black.copy(alpha = 0.18f))
+            .padding(4.dp),
+          horizontalArrangement = Arrangement.spacedBy(6.dp),
+          verticalAlignment = Alignment.CenterVertically,
+        ) {
+          MainTimerMode.entries.forEach { mode ->
+            val selected = timerState.mode == mode
+            Box(
+              modifier = Modifier
+                .weight(1f)
+                .heightIn(min = 40.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(if (selected) Color.White else Color.Transparent)
+                .clickable { onSelectMode(mode) }
+                .testTag("main_timer_mode_${mode.name.lowercase()}"),
+              contentAlignment = Alignment.Center,
+            ) {
+              Text(
+                text = mode.label,
+                fontFamily = PixelFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = if (selected) palette.accent else Color.White,
+              )
+            }
+          }
+        }
+
+        Row(
+          modifier = Modifier
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(Color.Black.copy(alpha = 0.18f))
             .clickable(
               role = Role.Button,
@@ -392,7 +466,7 @@ private fun MainTimerCard(
               onClick = onCollapse,
             )
             .testTag("main_timer_collapse")
-            .padding(horizontal = 9.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
           horizontalArrangement = Arrangement.spacedBy(4.dp),
           verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -412,74 +486,8 @@ private fun MainTimerCard(
         }
       }
 
-      // Mode Switcher: Tryb Pomodoro vs Timer
-      Row(
-        modifier = Modifier
-          .fillMaxWidth()
-          .clip(RoundedCornerShape(12.dp))
-          .background(Color.Black.copy(alpha = 0.18f))
-          .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-      ) {
-        MainTimerMode.entries.forEach { mode ->
-          val selected = timerState.mode == mode
-          Box(
-            modifier = Modifier
-              .weight(1f)
-              .clip(RoundedCornerShape(9.dp))
-              .background(if (selected) Color.White else Color.Transparent)
-              .clickable { onSelectMode(mode) }
-              .padding(vertical = 8.dp),
-            contentAlignment = Alignment.Center,
-          ) {
-            Text(
-              text = mode.label,
-              fontFamily = PixelFontFamily,
-              fontWeight = FontWeight.Bold,
-              fontSize = 14.sp,
-              color = if (selected) palette.accent else Color.White,
-            )
-          }
-        }
-      }
-
-      if (timerState.mode == MainTimerMode.POMODORO) {
-        // Standard classic Pomodoro cycle: Pomodoro (25m) -> Krótka przerwa (5m) -> Długa przerwa (15m)
-        Row(
-          horizontalArrangement = Arrangement.spacedBy(6.dp),
-          verticalAlignment = Alignment.CenterVertically,
-        ) {
-          val isFocusPhase = timerState.pomodoroPhase == PomodoroPhase.FOCUS
-          Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = Color.White.copy(alpha = 0.22f),
-          ) {
-            Text(
-              text = if (isFocusPhase) "POMODORO" else timerState.pomodoroPhase.label,
-              fontFamily = BodyFontFamily,
-              fontWeight = FontWeight.Bold,
-              fontSize = 11.sp,
-              letterSpacing = if (isFocusPhase) 0.8.sp else 0.sp,
-              color = Color.White,
-              modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            )
-          }
-          Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = Color.White.copy(alpha = 0.16f),
-          ) {
-            Text(
-              text = "Sesja ${timerState.completedFocusCount + 1}",
-              fontFamily = BodyFontFamily,
-              fontWeight = FontWeight.SemiBold,
-              fontSize = 11.sp,
-              color = Color.White,
-              modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            )
-          }
-        }
-      } else {
-        // Timer mode: preset chips (15 / 25 / 45 / 60 min) + HH:MM:SS custom steppers
+      if (timerState.mode == MainTimerMode.TIMER) {
+        // Timer mode: preset chips (15 / 25 / 45 / 60 min); HH:MM:SS editor appears only after tapping the dial
         Row(
           horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -510,86 +518,115 @@ private fun MainTimerCard(
           }
         }
 
-        Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-          verticalAlignment = Alignment.CenterVertically,
+        AnimatedVisibility(
+          visible = isTimerEditorVisible && !timerState.isRunning,
+          enter = expandVertically() + fadeIn(),
+          exit = shrinkVertically() + fadeOut(),
         ) {
-          TimeUnitStepper(
-            label = "HH",
-            value = timerState.customHours,
-            enabled = !timerState.isRunning,
-            onDelta = { delta ->
-              onUpdateCustomDuration(
-                (timerState.customHours + delta).coerceIn(0, 23),
-                timerState.customMinutes,
-                timerState.customSeconds,
-              )
-            },
-          )
-          Text(
-            text = ":",
-            fontFamily = BodyFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 22.sp,
-            color = Color.White,
-          )
-          TimeUnitStepper(
-            label = "MM",
-            value = timerState.customMinutes,
-            enabled = !timerState.isRunning,
-            onDelta = { delta ->
-              onUpdateCustomDuration(
-                timerState.customHours,
-                (timerState.customMinutes + delta).coerceIn(0, 59),
-                timerState.customSeconds,
-              )
-            },
-          )
-          Text(
-            text = ":",
-            fontFamily = BodyFontFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 22.sp,
-            color = Color.White,
-          )
-          TimeUnitStepper(
-            label = "SS",
-            value = timerState.customSeconds,
-            enabled = !timerState.isRunning,
-            onDelta = { delta ->
-              onUpdateCustomDuration(
-                timerState.customHours,
-                timerState.customMinutes,
-                (timerState.customSeconds + delta).coerceIn(0, 59),
-              )
-            },
-          )
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .testTag("timer_custom_hhmmss_editor"),
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            TimeUnitStepper(
+              label = "HH",
+              value = timerState.customHours,
+              enabled = !timerState.isRunning,
+              onDelta = { delta ->
+                onUpdateCustomDuration(
+                  (timerState.customHours + delta).coerceIn(0, 23),
+                  timerState.customMinutes,
+                  timerState.customSeconds,
+                )
+              },
+            )
+            Text(
+              text = ":",
+              fontFamily = BodyFontFamily,
+              fontWeight = FontWeight.Bold,
+              fontSize = 22.sp,
+              color = Color.White,
+            )
+            TimeUnitStepper(
+              label = "MM",
+              value = timerState.customMinutes,
+              enabled = !timerState.isRunning,
+              onDelta = { delta ->
+                onUpdateCustomDuration(
+                  timerState.customHours,
+                  (timerState.customMinutes + delta).coerceIn(0, 59),
+                  timerState.customSeconds,
+                )
+              },
+            )
+            Text(
+              text = ":",
+              fontFamily = BodyFontFamily,
+              fontWeight = FontWeight.Bold,
+              fontSize = 22.sp,
+              color = Color.White,
+            )
+            TimeUnitStepper(
+              label = "SS",
+              value = timerState.customSeconds,
+              enabled = !timerState.isRunning,
+              onDelta = { delta ->
+                onUpdateCustomDuration(
+                  timerState.customHours,
+                  timerState.customMinutes,
+                  (timerState.customSeconds + delta).coerceIn(0, 59),
+                )
+              },
+            )
+          }
         }
       }
 
-      // Big Circular Timer Ring with crisp readable tabular digits
+      // Big Circular Timer Ring: white when ready -> switches to active color on start -> fills back to white as time reaches 00:00:00
+      val canTapDialToEdit = timerState.mode == MainTimerMode.TIMER && !timerState.isRunning
       Box(
-        modifier = Modifier.size(200.dp),
+        modifier = Modifier
+          .size(200.dp)
+          .clip(CircleShape)
+          .then(
+            if (canTapDialToEdit) {
+              Modifier.clickable(
+                role = Role.Button,
+                onClickLabel = if (isTimerEditorVisible) "Ukryj edycję czasu" else "Edytuj czas timera",
+                onClick = { isTimerEditorVisible = !isTimerEditorVisible },
+              )
+            } else {
+              Modifier
+            }
+          )
+          .testTag("main_timer_dial"),
         contentAlignment = Alignment.Center,
       ) {
-        val progress = timerState.progressFraction
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Canvas(modifier = Modifier.fillMaxSize().padding(6.dp)) {
           val strokeWidth = 12.dp.toPx()
+          // Full 360° base ring: White when idle/finished, Active Color when countdown is underway
           drawArc(
-            color = Color.White.copy(alpha = 0.24f),
+            color = ringBaseColor,
             startAngle = -90f,
             sweepAngle = 360f,
             useCenter = false,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Butt),
           )
-          drawArc(
-            color = Color.White,
-            startAngle = -90f,
-            sweepAngle = (1f - progress) * 360f,
-            useCenter = false,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
-          )
+          // Elapsed portion returns progressively to original White until 100% white at 00:00:00
+          if (isCountdownActive && animatedElapsedFraction > 0.001f) {
+            drawArc(
+              color = Color.White,
+              startAngle = -90f,
+              sweepAngle = (animatedElapsedFraction * 360f).coerceIn(0f, 360f),
+              useCenter = false,
+              style = Stroke(
+                width = strokeWidth,
+                cap = if (animatedElapsedFraction >= 0.995f) StrokeCap.Butt else StrokeCap.Round,
+              ),
+            )
+          }
         }
 
         val hrs = timerState.remainingSeconds / 3600
@@ -601,37 +638,62 @@ private fun MainTimerCard(
           String.format("%02d:%02d", mins, secs)
         }
 
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        val insideBadgeText = if (timerState.mode == MainTimerMode.POMODORO) {
+          val baseSessionLabel = when (timerState.pomodoroPhase) {
+            PomodoroPhase.FOCUS -> "Sesja ${timerState.completedFocusCount + 1}"
+            PomodoroPhase.SHORT_BREAK -> "Krótka przerwa"
+            PomodoroPhase.LONG_BREAK -> "Długa przerwa"
+          }
+          if (isPaused) "$baseSessionLabel · Pauza" else baseSessionLabel
+        } else {
+          when {
+            timerState.isRunning -> "Odliczanie"
+            isTimerEditorVisible -> "Ukryj edycję"
+            isPaused -> "Pauza · Edytuj"
+            else -> "Edytuj czas"
+          }
+        }
+
+        Column(
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
           Text(
             text = timeText,
             style = MaterialTheme.typography.displayLarge.copy(
               fontFamily = BodyFontFamily,
               fontWeight = FontWeight.Bold,
-              fontSize = if (timeText.length > 5) 34.sp else 46.sp,
+              fontSize = if (timeText.length > 5) 32.sp else 46.sp,
               fontFeatureSettings = "tnum",
             ),
             color = Color.White,
           )
-          val isPaused = !timerState.isRunning &&
-            timerState.remainingSeconds in 1 until timerState.totalSeconds
-          val statusChipText = when {
-            timerState.isRunning -> "Odliczanie"
-            isPaused -> "PAUZA"
-            else -> "Gotowy"
-          }
           Surface(
-            shape = RoundedCornerShape(6.dp),
-            color = Color.White.copy(alpha = 0.18f),
+            shape = RoundedCornerShape(8.dp),
+            color = Color.White.copy(alpha = 0.20f),
+            modifier = Modifier.testTag("main_timer_session_label"),
           ) {
-            Text(
-              text = statusChipText,
-              fontFamily = BodyFontFamily,
-              fontWeight = FontWeight.SemiBold,
-              fontSize = 11.sp,
-              letterSpacing = if (isPaused) 0.8.sp else 0.sp,
-              color = Color.White,
-              modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-            )
+            Row(
+              modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
+              horizontalArrangement = Arrangement.spacedBy(4.dp),
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              if (canTapDialToEdit && !isTimerEditorVisible) {
+                Icon(
+                  imageVector = Icons.Default.Edit,
+                  contentDescription = null,
+                  tint = Color.White,
+                  modifier = Modifier.size(12.dp),
+                )
+              }
+              Text(
+                text = insideBadgeText,
+                fontFamily = BodyFontFamily,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 11.5.sp,
+                color = Color.White,
+              )
+            }
           }
         }
       }

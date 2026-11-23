@@ -107,7 +107,10 @@ data class RewardOutcome(
   val undoSnapshot: TaskActionUndoSnapshot? = null,
 )
 
-class GamefyRepository(private val dao: GamefyDao) {
+class GamefyRepository(
+  private val dao: GamefyDao,
+  private val onDataChanged: () -> Unit = {},
+) {
   private val completionMutex = Mutex()
   private val templateAddMutex = Mutex()
   private val randomSideQuestMutex = Mutex()
@@ -332,6 +335,7 @@ class GamefyRepository(private val dao: GamefyDao) {
       if (streakResult.usedFreezeNow) parts.add("Zamrożenie serii aktywne")
       parts.add("+${currentTask.expReward} EXP · +${currentTask.coinReward} monet")
       if (gemsGained > 0) parts.add("+${com.example.data.model.formatGemsLabel(gemsGained)}")
+      onDataChanged()
       RewardOutcome(
         toastMessage = parts.joinToString("  "),
         unlockedAchievements = newlyUnlocked,
@@ -436,6 +440,7 @@ class GamefyRepository(private val dao: GamefyDao) {
         activityEvent = skipEvent,
       )
 
+      onDataChanged()
       TaskActionOutcome(
         toastMessage = message,
         undoSnapshot = TaskActionUndoSnapshot(
@@ -513,6 +518,7 @@ class GamefyRepository(private val dao: GamefyDao) {
         }
       }
 
+      onDataChanged()
       TaskActionOutcome(
         toastMessage = message,
         undoSnapshot = TaskActionUndoSnapshot(
@@ -532,6 +538,7 @@ class GamefyRepository(private val dao: GamefyDao) {
         previousShopItem = snapshot.previousShopItem,
         insertedActivityEventIds = snapshot.insertedActivityEventIds,
       )
+      onDataChanged()
       true
     }
 
@@ -566,7 +573,7 @@ class GamefyRepository(private val dao: GamefyDao) {
     )
     val discipline = dao.getAttributesOnce().find { it.name.equals("Dyscyplina", ignoreCase = true) }
     val attrIds = if (discipline != null) listOf(discipline.id) else emptyList()
-    return awardRewards(
+    val outcome = awardRewards(
       expGain = expGain,
       coinGain = coinGain,
       attributeIds = attrIds,
@@ -575,6 +582,8 @@ class GamefyRepository(private val dao: GamefyDao) {
       fullPomodoroCycleCompleted = completedFullPomodoroCycle,
       prefix = "Sesja ukończona!",
     )
+    onDataChanged()
+    return outcome
   }
 
   private suspend fun awardRewards(
@@ -805,7 +814,7 @@ class GamefyRepository(private val dao: GamefyDao) {
   }
 
   suspend fun saveTask(task: TaskEntity): RewardOutcome {
-    return if (task.id == 0L) {
+    val outcome = if (task.id == 0L) {
       dao.insertTask(task)
       val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
       val (finalProfile, unlocked) = evaluateAndGrantAchievements(
@@ -824,6 +833,8 @@ class GamefyRepository(private val dao: GamefyDao) {
       }
       RewardOutcome(toastMessage = "Zapisano zadanie", unlockedAchievements = unlocked)
     }
+    onDataChanged()
+    return outcome
   }
 
   suspend fun deleteTask(taskId: Long) {
@@ -834,6 +845,7 @@ class GamefyRepository(private val dao: GamefyDao) {
     completionMutex.withLock {
       val currentTask = dao.getTaskByIdOnce(taskId) ?: return@withLock TaskActionOutcome()
       dao.deleteTaskById(taskId)
+      onDataChanged()
       TaskActionOutcome(
         toastMessage = "Usunięto zadanie",
         undoSnapshot = TaskActionUndoSnapshot(previousTask = currentTask),
@@ -892,6 +904,7 @@ class GamefyRepository(private val dao: GamefyDao) {
       )
       dao.upsertProfile(finalProfile)
       logAchievementRewards(unlocked, now)
+      onDataChanged()
       return count to unlocked
     }
     return count to emptyList()
@@ -1069,6 +1082,19 @@ class GamefyRepository(private val dao: GamefyDao) {
   suspend fun setTheme(theme: AppThemeId) {
     val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
     dao.upsertProfile(profile.copy(themeCode = theme.code))
+    onDataChanged()
+  }
+
+  suspend fun setSystemTheme() {
+    val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
+    dao.upsertProfile(profile.copy(themeCode = com.example.data.model.THEME_CODE_SYSTEM))
+    onDataChanged()
+  }
+
+  suspend fun markTutorialCompleted() {
+    val profile = dao.getProfileOnce() ?: return
+    if (!profile.tutorialPending) return
+    dao.upsertProfile(profile.copy(tutorialPending = false))
   }
 
   suspend fun setFontSize(fontSize: AppFontSize) {
@@ -1098,9 +1124,38 @@ class GamefyRepository(private val dao: GamefyDao) {
 
   // --- Onboarding & Ready Tasks/Rewards Catalog ---
 
+  private suspend fun ensureStarterInactiveTaskIfEmpty() {
+    if (dao.getTasksOnce().isEmpty()) {
+      dao.insertTask(
+        TaskEntity(
+          name = STARTER_TUTORIAL_TASK_NAME,
+          description = "Twoje pierwsze zadanie startowe. Otwórz edycję, zobacz dostępne opcje, zapisz i aktywuj!",
+          categoryCode = TaskCategory.SIDEQUEST.code,
+          repeatInterval = 1,
+          expReward = 1,
+          coinReward = 1,
+          gemReward = 0,
+          difficultyCode = TaskDifficulty.VERY_EASY.code,
+          reminderModeCode = ReminderMode.NONE.code,
+          penaltyModeCode = PenaltyMode.NONE.code,
+          startTimestamp = System.currentTimeMillis(),
+          dueTimestamp = null,
+          isActive = false,
+        )
+      )
+    }
+  }
+
   suspend fun completeOnboardingStartFromScratch() {
     val profile = dao.getProfileOnce() ?: PlayerProfileEntity()
-    dao.upsertProfile(profile.copy(onboardingCompleted = true))
+    dao.upsertProfile(
+      profile.copy(
+        onboardingCompleted = true,
+        tutorialPending = true,
+      )
+    )
+    ensureStarterInactiveTaskIfEmpty()
+    onDataChanged()
   }
 
   suspend fun completeOnboardingFromSurvey(
@@ -1115,6 +1170,7 @@ class GamefyRepository(private val dao: GamefyDao) {
     dao.upsertProfile(
       profile.copy(
         onboardingCompleted = true,
+        tutorialPending = true,
         onboardingInterestsCsv = areas?.takeIf { it.isNotEmpty() }?.joinToString(",") { it.id },
         onboardingTimePref = timePref?.id,
         onboardingDetailPref = detailPref?.id,
@@ -1138,6 +1194,10 @@ class GamefyRepository(private val dao: GamefyDao) {
       }
     }
 
+    if (addedTasks == 0) {
+      ensureStarterInactiveTaskIfEmpty()
+    }
+    onDataChanged()
     return addedTasks to addedRewards
   }
 
@@ -1228,6 +1288,7 @@ class GamefyRepository(private val dao: GamefyDao) {
         dueTimestamp = nextDue,
       )
     )
+    onDataChanged()
     return true
   }
 
@@ -1442,6 +1503,9 @@ class GamefyRepository(private val dao: GamefyDao) {
       }
     }
 
+    if (newlyAcceptedIds.isNotEmpty()) {
+      onDataChanged()
+    }
     newlyAcceptedIds.size to unlockedAchievements
   }
 
@@ -1497,6 +1561,7 @@ class GamefyRepository(private val dao: GamefyDao) {
   companion object {
     const val WEEKLY_BACKUP_REMINDER_INTERVAL_MS: Long = 7L * MILLIS_PER_DAY
     const val BACKUP_REMINDER_SNOOZE_30_DAYS_MS: Long = 30L * MILLIS_PER_DAY
+    const val STARTER_TUTORIAL_TASK_NAME: String = "Pobierz Gamify"
   }
 
   suspend fun checkDueReminders(nowMillis: Long = System.currentTimeMillis()): List<Pair<Long, String>> {
@@ -1733,6 +1798,7 @@ class GamefyRepository(private val dao: GamefyDao) {
           put("completedLastMinute", profile.completedLastMinute)
           put("completedNoLettersTask", profile.completedNoLettersTask)
           put("completedSmallTask", profile.completedSmallTask)
+          put("tutorialPending", profile.tutorialPending)
         },
       )
       put(
@@ -1936,6 +2002,7 @@ class GamefyRepository(private val dao: GamefyDao) {
         completedLastMinute = pObj.optBoolean("completedLastMinute", false),
         completedNoLettersTask = pObj.optBoolean("completedNoLettersTask", false),
         completedSmallTask = pObj.optBoolean("completedSmallTask", false),
+        tutorialPending = if (markOnboardingCompleted) false else pObj.optBoolean("tutorialPending", false),
       )
 
       val attrsArr = root.getJSONArray("attributes")
@@ -2058,6 +2125,7 @@ class GamefyRepository(private val dao: GamefyDao) {
       }
 
       dao.replaceAllData(profile, attrs, folders, tags, tasks, shop, events)
+      onDataChanged()
       true
     }.getOrDefault(false)
   }

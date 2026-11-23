@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -59,12 +60,14 @@ import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -112,7 +115,9 @@ import com.example.ui.components.PixelIcon
 import com.example.ui.components.PixelSectionHeader
 import com.example.ui.components.SearchFilterIconButton
 import com.example.ui.components.TaskCardItem
+import com.example.ui.components.TutorialTargetIds
 import com.example.ui.components.resolveFolderColor
+import com.example.ui.components.tutorialTarget
 import com.example.ui.theme.BodyFontFamily
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
@@ -262,6 +267,25 @@ fun TasksScreen(
     }
   }
 
+  val listState = rememberLazyListState()
+
+  LaunchedEffect(openLibraryTrigger) {
+    if (openLibraryTrigger > 0) {
+      selectedTabIndex = 0
+      searchQuery = ""
+      selectedTagIdFilter = null
+      selectedCategoryFilter = null
+      sectionExpandedOverrides = sectionExpandedOverrides + ("library_inactive" to true)
+      withFrameNanos { }
+      withFrameNanos { }
+      val totalItems = listState.layoutInfo.totalItemsCount
+      if (totalItems > 0) {
+        val targetIndex = (totalItems - 2).coerceAtLeast(0)
+        listState.animateScrollToItem(targetIndex)
+      }
+    }
+  }
+
   Column(
     modifier = modifier.fillMaxSize(),
     horizontalAlignment = Alignment.CenterHorizontally,
@@ -333,6 +357,7 @@ fun TasksScreen(
         horizontalPadding = 10.dp,
         modifier = Modifier
           .weight(1f)
+          .tutorialTarget(TutorialTargetIds.NEW_TASK)
           .testTag("new_task_button"),
         leadingIcon = {
           Icon(
@@ -617,6 +642,7 @@ fun TasksScreen(
     }
 
     LazyColumn(
+      state = listState,
       modifier = Modifier
         .fillMaxSize()
         .widthIn(max = 640.dp),
@@ -1228,16 +1254,21 @@ fun TasksScreen(
       if (libraryTasks.isNotEmpty()) {
         val libraryKey = "library_inactive"
         val libraryExpanded = isSectionExpanded(libraryKey, defaultExpanded = false)
+        val tutorialTargetLibraryTaskId =
+          libraryTasks.find { it.name == com.example.data.repository.GamefyRepository.STARTER_TUTORIAL_TASK_NAME }?.id
+            ?: libraryTasks.firstOrNull()?.id
         item(key = "personal_library_section") {
-          CollapsibleTaskSectionHeader(
-            title = "Nieaktywne",
-            subtitle = "Biblioteka zadań",
-            count = libraryTasks.size,
-            expanded = libraryExpanded,
-            onToggle = { toggleSection(libraryKey, defaultExpanded = false) },
-            accentColor = palette.accent,
-            testTag = "personal_library_card",
-          )
+          Box(modifier = Modifier.tutorialTarget(TutorialTargetIds.INACTIVE_HEADER)) {
+            CollapsibleTaskSectionHeader(
+              title = "Nieaktywne",
+              subtitle = "Biblioteka zadań",
+              count = libraryTasks.size,
+              expanded = libraryExpanded,
+              onToggle = { toggleSection(libraryKey, defaultExpanded = false) },
+              accentColor = palette.accent,
+              testTag = "personal_library_card",
+            )
+          }
         }
         if (libraryExpanded) {
           item(key = "personal_library_hint") {
@@ -1256,6 +1287,7 @@ fun TasksScreen(
             LibraryTaskRowItem(
               task = task,
               folders = uiState.folders,
+              isTutorialTarget = task.id == tutorialTargetLibraryTaskId,
               onActivateTask = onActivateTask,
               onEditTask = onEditTask,
             )
@@ -1819,6 +1851,7 @@ private fun CompletedTaskRowItem(
 private fun LibraryTaskRowItem(
   task: TaskEntity,
   folders: List<FolderEntity>,
+  isTutorialTarget: Boolean = false,
   onActivateTask: (Long) -> Unit,
   onEditTask: (Long) -> Unit,
 ) {
@@ -1891,6 +1924,9 @@ private fun LibraryTaskRowItem(
           compact = true,
           modifier = Modifier
             .weight(1f)
+            .then(
+              if (isTutorialTarget) Modifier.tutorialTarget(TutorialTargetIds.INACTIVE_ACTIVATE) else Modifier
+            )
             .testTag("activate_library_task_${task.id}"),
           onClick = { onActivateTask(task.id) },
         )
@@ -1901,6 +1937,9 @@ private fun LibraryTaskRowItem(
           contentColor = palette.textPrimary,
           modifier = Modifier
             .weight(1f)
+            .then(
+              if (isTutorialTarget) Modifier.tutorialTarget(TutorialTargetIds.INACTIVE_EDIT) else Modifier
+            )
             .testTag("edit_library_task_${task.id}"),
           onClick = { onEditTask(task.id) },
         )

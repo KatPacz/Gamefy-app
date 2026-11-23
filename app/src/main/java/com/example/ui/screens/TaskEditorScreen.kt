@@ -96,7 +96,9 @@ import com.example.ui.components.PixelButton
 import com.example.ui.components.PixelCard
 import com.example.ui.components.PixelIcon
 import com.example.ui.components.PixelSectionHeader
+import com.example.ui.components.TutorialTargetIds
 import com.example.ui.components.resolveFolderColor
+import com.example.ui.components.tutorialTarget
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
 import java.text.SimpleDateFormat
@@ -444,6 +446,7 @@ fun TaskEditorScreen(
               text = "Zapisz",
               modifier = Modifier
                 .weight(1.35f)
+                .tutorialTarget(TutorialTargetIds.TASK_SAVE)
                 .testTag("save_task_button"),
               onClick = ::handleSave,
             )

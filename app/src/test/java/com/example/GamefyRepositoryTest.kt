@@ -621,11 +621,12 @@ class GamefyRepositoryTest {
   }
 
   @Test
-  fun `fresh install starts empty and start from scratch marks onboarding complete without adding tasks or rewards`() = runTest {
+  fun `fresh install starts empty and start from scratch marks onboarding complete with starter tutorial task`() = runTest {
     GamefyDatabase.ensureSeeded(db)
     val dao = db.gamefyDao()
 
     assertFalse(dao.getProfileOnce()!!.onboardingCompleted)
+    assertEquals(com.example.data.model.THEME_CODE_SYSTEM, dao.getProfileOnce()!!.themeCode)
     assertTrue(dao.getTasksOnce().isEmpty())
     assertTrue(dao.getShopItemsOnce().isEmpty())
     assertEquals(5, dao.getAttributesOnce().size)
@@ -634,11 +635,18 @@ class GamefyRepositoryTest {
 
     val profile = dao.getProfileOnce()!!
     assertTrue(profile.onboardingCompleted)
+    assertTrue(profile.tutorialPending)
     assertEquals(null, profile.onboardingInterestsCsv)
     assertEquals(null, profile.onboardingTimePref)
     assertEquals(null, profile.onboardingDetailPref)
     assertEquals(null, profile.onboardingRewardPrefsCsv)
-    assertTrue(dao.getTasksOnce().isEmpty())
+    val starterTasks = dao.getTasksOnce()
+    assertEquals(1, starterTasks.size)
+    val starter = starterTasks.single()
+    assertEquals(GamefyRepository.STARTER_TUTORIAL_TASK_NAME, starter.name)
+    assertEquals(1, starter.expReward)
+    assertEquals(1, starter.coinReward)
+    assertFalse(starter.isActive)
     assertTrue(dao.getShopItemsOnce().isEmpty())
   }
 
@@ -894,11 +902,16 @@ class GamefyRepositoryTest {
 
     val p = dao.getProfileOnce()!!
     assertTrue(p.onboardingCompleted)
+    assertTrue(p.tutorialPending)
     assertEquals(null, p.onboardingInterestsCsv)
     assertEquals(null, p.onboardingTimePref)
     assertEquals(null, p.onboardingDetailPref)
     assertEquals(null, p.onboardingRewardPrefsCsv)
-    assertTrue(dao.getTasksOnce().isEmpty())
+    val starter = dao.getTasksOnce().single()
+    assertEquals(GamefyRepository.STARTER_TUTORIAL_TASK_NAME, starter.name)
+    assertEquals(1, starter.expReward)
+    assertEquals(1, starter.coinReward)
+    assertFalse(starter.isActive)
     assertTrue(dao.getShopItemsOnce().isEmpty())
 
     // Classic custom task with 2 linked attributes (no weightsJson) grants full expReward to each attribute
@@ -1456,6 +1469,216 @@ class GamefyRepositoryTest {
     )
     assertEquals("ten_tasks", prog.nextLockedTier?.id)
     assertEquals(0.8f, prog.progressFraction, 0.001f)
+  }
+
+  @Test
+  fun `backup restore skips guided tutorial while markTutorialCompleted and setSystemTheme persist cleanly`() = runBlocking {
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+
+    dao.insertTask(TaskEntity(name = "Zadanie z kopii", categoryCode = "d", expReward = 15, coinReward = 10))
+    val backupJson = repo.exportToJson()
+    dao.clearTasks()
+    dao.upsertProfile(dao.getProfileOnce()!!.copy(onboardingCompleted = false, tutorialPending = true))
+
+    assertTrue(repo.importFromJson(backupJson, markOnboardingCompleted = true))
+    val restoredProfile = dao.getProfileOnce()!!
+    assertTrue(restoredProfile.onboardingCompleted)
+    assertFalse(restoredProfile.tutorialPending)
+    assertTrue(dao.getTasksOnce().none { it.name == GamefyRepository.STARTER_TUTORIAL_TASK_NAME })
+
+    // Explicit theme -> return to system theme -> tutorial completion
+    repo.setTheme(com.example.data.model.AppThemeId.AMOLED)
+    assertEquals(com.example.data.model.AppThemeId.AMOLED.code, dao.getProfileOnce()!!.themeCode)
+    repo.setSystemTheme()
+    assertEquals(com.example.data.model.THEME_CODE_SYSTEM, dao.getProfileOnce()!!.themeCode)
+
+    dao.upsertProfile(dao.getProfileOnce()!!.copy(tutorialPending = true))
+    repo.markTutorialCompleted()
+    assertFalse(dao.getProfileOnce()!!.tutorialPending)
+  }
+
+  @Test
+  fun `today tasks widget uses shared repository completion and undo logic atomically`() = runTest {
+    com.example.widgets.WidgetUndoStore.clearAll()
+    GamefyDatabase.ensureSeeded(db)
+    val dao = db.gamefyDao()
+    val now = System.currentTimeMillis()
+    val taskId = dao.insertTask(
+      TaskEntity(
+        name = "Zadanie na widżecie",
+        categoryCode = "o",
+        expReward = 25,
+        coinReward = 12,
+        startTimestamp = now - 60_000L,
+        dueTimestamp = now + 3_600_000L,
+        isActive = true,
+      )
+    )
+
+    val beforeSnap = com.example.widgets.TodayTasksWidgetLogic.buildSnapshot(
+      tasks = dao.getTasksOnce(),
+      activityEvents = dao.getActivityEventsOnce(),
+      pendingUndos = com.example.widgets.WidgetUndoStore.activeEntries(now),
+      nowMillis = now,
+      maxRows = 4,
+    )
+    assertEquals("Dziś: 0/1", beforeSnap.headerCounterText)
+    assertEquals(1, beforeSnap.rows.size)
+    assertFalse(beforeSnap.rows.first().isPendingUndo)
+
+    // Complete via shared repository logic
+    val task = dao.getTaskByIdOnce(taskId)!!
+    val outcome = repo.completeTask(task)
+    assertNotNull(outcome.undoSnapshot)
+    assertTrue(dao.getProfileOnce()!!.exp >= 25)
+    assertTrue(dao.getProfileOnce()!!.coins >= 12)
+
+    // Record 6-second pending undo entry like TodayTasksWidgetProvider
+    com.example.widgets.WidgetUndoStore.put(
+      com.example.widgets.PendingWidgetUndo(
+        taskId = task.id,
+        taskName = task.name,
+        snapshot = outcome.undoSnapshot!!,
+        expiresAtMillis = now + com.example.widgets.WidgetUndoStore.UNDO_WINDOW_MILLIS,
+      )
+    )
+
+    val pendingSnap = com.example.widgets.TodayTasksWidgetLogic.buildSnapshot(
+      tasks = dao.getTasksOnce(),
+      activityEvents = dao.getActivityEventsOnce(),
+      pendingUndos = com.example.widgets.WidgetUndoStore.activeEntries(now + 1_000L),
+      nowMillis = now + 1_000L,
+      maxRows = 4,
+    )
+    assertEquals("Dziś: 1/1", pendingSnap.headerCounterText)
+    assertEquals(1, pendingSnap.rows.size)
+    assertTrue(pendingSnap.rows.first().isPendingUndo)
+
+    // Undo via shared repository logic restores task & profile atomically
+    val pendingEntry = com.example.widgets.WidgetUndoStore.take(task.id)!!
+    assertTrue(repo.undoTaskAction(pendingEntry.snapshot))
+    assertEquals(0, dao.getProfileOnce()!!.exp)
+    assertEquals(0, dao.getProfileOnce()!!.coins)
+
+    val afterUndoSnap = com.example.widgets.TodayTasksWidgetLogic.buildSnapshot(
+      tasks = dao.getTasksOnce(),
+      activityEvents = dao.getActivityEventsOnce(),
+      pendingUndos = com.example.widgets.WidgetUndoStore.activeEntries(now + 2_000L),
+      nowMillis = now + 2_000L,
+      maxRows = 4,
+    )
+    assertEquals("Dziś: 0/1", afterUndoSnap.headerCounterText)
+    assertEquals(1, afterUndoSnap.rows.size)
+    assertFalse(afterUndoSnap.rows.first().isPendingUndo)
+    com.example.widgets.WidgetUndoStore.clearAll()
+  }
+
+  @Test
+  fun `widget timer store round trips paused and running states and formats labels`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val pausedState = com.example.ui.MainTimerState(
+      mode = com.example.ui.MainTimerMode.POMODORO,
+      pomodoroPhase = com.example.ui.PomodoroPhase.SHORT_BREAK,
+      completedFocusCount = 2,
+      totalSeconds = 5 * 60,
+      remainingSeconds = 245,
+      isRunning = false,
+    )
+    com.example.widgets.WidgetTimerStore.save(
+      context = context,
+      state = pausedState,
+      targetElapsedRealtimeMs = 0L,
+      nowElapsedMs = 10_000L,
+      nowWallMs = 1_700_000_000_000L,
+    )
+    val loadedPaused = com.example.widgets.WidgetTimerStore.load(
+      context = context,
+      nowElapsedMs = 15_000L,
+      nowWallMs = 1_700_000_005_000L,
+    )
+    assertFalse(loadedPaused.state.isRunning)
+    assertEquals(245, loadedPaused.state.remainingSeconds)
+    assertEquals(com.example.ui.PomodoroPhase.SHORT_BREAK, loadedPaused.state.pomodoroPhase)
+    assertEquals("Krótka przerwa", com.example.widgets.WidgetTimerStore.phaseDisplayLabel(loadedPaused.state))
+    assertEquals("04:05", com.example.widgets.WidgetTimerStore.formatClockText(245))
+    assertEquals("1:05:09", com.example.widgets.WidgetTimerStore.formatClockText(3909))
+
+    // Running state counts down using elapsedRealtime without 1-second polling
+    val runningState = pausedState.copy(
+      pomodoroPhase = com.example.ui.PomodoroPhase.FOCUS,
+      totalSeconds = 25 * 60,
+      remainingSeconds = 1500,
+      isRunning = true,
+    )
+    com.example.widgets.WidgetTimerStore.save(
+      context = context,
+      state = runningState,
+      targetElapsedRealtimeMs = 10_000L + 1_500_000L,
+      nowElapsedMs = 10_000L,
+      nowWallMs = 1_700_000_000_000L,
+    )
+    val loadedAfter30s = com.example.widgets.WidgetTimerStore.load(
+      context = context,
+      nowElapsedMs = 40_000L,
+      nowWallMs = 1_700_000_030_000L,
+    )
+    assertTrue(loadedAfter30s.state.isRunning)
+    assertEquals(1470, loadedAfter30s.state.remainingSeconds)
+    assertEquals("Skupienie", com.example.widgets.WidgetTimerStore.phaseDisplayLabel(loadedAfter30s.state))
+  }
+
+  @Test
+  fun `ongoing timer notification shows pause and cancel while running switches to resume when paused and clears on reset`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    org.robolectric.Shadows.shadowOf(context as android.app.Application)
+      .grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+    val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+    val shadowNm = org.robolectric.Shadows.shadowOf(nm)
+    val nowWall = 1_700_000_000_000L
+
+    val running = com.example.ui.MainTimerState(
+      mode = com.example.ui.MainTimerMode.POMODORO,
+      pomodoroPhase = com.example.ui.PomodoroPhase.FOCUS,
+      completedFocusCount = 0,
+      totalSeconds = 25 * 60,
+      remainingSeconds = 25 * 60,
+      isRunning = true,
+    )
+    com.example.notifications.NotificationHelper.updateOngoingTimerNotification(
+      context = context,
+      state = running,
+      targetWallClockMs = nowWall + 25 * 60 * 1000L,
+      nowWallMs = nowWall,
+    )
+    val runningNotif = shadowNm.getNotification(com.example.notifications.NotificationHelper.NOTIFICATION_ID_TIMER_ONGOING)
+    assertNotNull(runningNotif)
+    assertEquals("Pomodoro · Sesja 1", runningNotif.extras.getString(android.app.Notification.EXTRA_TITLE))
+    assertEquals(listOf("Pauza", "Anuluj"), runningNotif.actions.map { it.title.toString() })
+
+    val paused = running.copy(remainingSeconds = 900, isRunning = false)
+    com.example.notifications.NotificationHelper.updateOngoingTimerNotification(
+      context = context,
+      state = paused,
+      targetWallClockMs = 0L,
+      nowWallMs = nowWall,
+    )
+    val pausedNotif = shadowNm.getNotification(com.example.notifications.NotificationHelper.NOTIFICATION_ID_TIMER_ONGOING)
+    assertNotNull(pausedNotif)
+    assertEquals("Pomodoro · Sesja 1 · Pauza", pausedNotif.extras.getString(android.app.Notification.EXTRA_TITLE))
+    assertEquals(listOf("Wznów", "Anuluj"), pausedNotif.actions.map { it.title.toString() })
+
+    val reset = running.copy(remainingSeconds = running.totalSeconds, isRunning = false)
+    com.example.notifications.NotificationHelper.updateOngoingTimerNotification(
+      context = context,
+      state = reset,
+      targetWallClockMs = 0L,
+      nowWallMs = nowWall,
+    )
+    assertEquals(
+      null,
+      shadowNm.getNotification(com.example.notifications.NotificationHelper.NOTIFICATION_ID_TIMER_ONGOING),
+    )
   }
 }
 

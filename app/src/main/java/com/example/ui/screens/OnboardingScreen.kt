@@ -360,6 +360,13 @@ fun OnboardingScreen(
           onToggleTask = { id ->
             checkedTaskIds = if (id in checkedTaskIds) checkedTaskIds - id else checkedTaskIds + id
           },
+          onToggleAllTasks = {
+            checkedTaskIds = if (checkedTaskIds.size == recommendedTasks.size) {
+              emptySet()
+            } else {
+              recommendedTasks.map { it.id }.toSet()
+            }
+          },
           onToggleReward = { id ->
             checkedRewardIds = if (id in checkedRewardIds) checkedRewardIds - id else checkedRewardIds + id
           },
@@ -918,6 +925,7 @@ private fun SummaryStepContent(
   checkedTaskIds: Set<String>,
   checkedRewardIds: Set<String>,
   onToggleTask: (String) -> Unit,
+  onToggleAllTasks: () -> Unit,
   onToggleReward: (String) -> Unit,
   onToggleAllRewards: () -> Unit,
   onBack: () -> Unit,
@@ -1013,10 +1021,30 @@ private fun SummaryStepContent(
         }
       } else {
         item {
-          PixelSectionHeader(
-            title = "Proponowane zadania",
-            badgeText = "${recommendedTasks.size}",
-          )
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+          ) {
+            PixelSectionHeader(
+              title = "Proponowane zadania",
+              badgeText = "${recommendedTasks.size}",
+              modifier = Modifier.weight(1f),
+            )
+            TextButton(
+              onClick = onToggleAllTasks,
+              modifier = Modifier
+                .heightIn(min = 48.dp)
+                .testTag("onboarding_toggle_all_tasks"),
+            ) {
+              Text(
+                text = if (checkedTaskIds.size == recommendedTasks.size) "Odznacz" else "Wybierz wszystkie",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = palette.accent,
+              )
+            }
+          }
         }
         items(recommendedTasks, key = { it.id }) { tpl ->
           val checked = tpl.id in checkedTaskIds
@@ -1085,10 +1113,16 @@ private fun SummaryStepContent(
               badgeText = "${recommendedRewards.size}",
               modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = onToggleAllRewards) {
+            TextButton(
+              onClick = onToggleAllRewards,
+              modifier = Modifier
+                .heightIn(min = 48.dp)
+                .testTag("onboarding_toggle_all_rewards"),
+            ) {
               Text(
-                text = if (checkedRewardIds.size == recommendedRewards.size) "Odznacz" else "Zaznacz wszystkie",
-                style = MaterialTheme.typography.labelSmall,
+                text = if (checkedRewardIds.size == recommendedRewards.size) "Odznacz" else "Wybierz wszystkie",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
                 color = palette.accent,
               )
             }

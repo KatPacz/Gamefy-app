@@ -36,6 +36,10 @@ import com.example.data.repository.RewardOutcome
 import com.example.data.repository.TaskActionUndoSnapshot
 import com.example.notifications.NotificationHelper
 import com.example.notifications.ReminderScheduler
+import com.example.notifications.TimerSoundHelper
+import com.example.widgets.TimerWidgetProvider
+import com.example.widgets.WidgetRefreshHelper
+import com.example.widgets.WidgetTimerStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -107,8 +111,12 @@ data class GamefyUiState(
   val activityEvents: List<ActivityEventEntity> = emptyList(),
   val isLoaded: Boolean = false,
 ) {
+  val usesSystemTheme: Boolean
+    get() = profile.themeCode.isBlank() || profile.themeCode == com.example.data.model.THEME_CODE_SYSTEM
   val themeId: AppThemeId
     get() = AppThemeId.fromCode(profile.themeCode)
+  fun resolvedThemeId(isSystemDark: Boolean): AppThemeId =
+    com.example.data.model.resolveEffectiveThemeId(profile.themeCode, isSystemDark)
   val fontSize: AppFontSize
     get() = AppFontSize.fromCode(profile.fontSizeCode)
   val fontFamilyOption: AppFontFamilyOption
@@ -223,6 +231,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   private var taskTimerTargetElapsedMs: Long = 0L
 
   init {
+    syncTimerFromWidgetStore()
+    viewModelScope.launch {
+      WidgetTimerStore.externalChanges.collect {
+        syncTimerFromWidgetStore()
+      }
+    }
     viewModelScope.launch {
       GamefyDatabase.ensureSeeded(app.database)
       _isLoaded.value = true
@@ -230,6 +244,65 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     startTimerLoop()
     startPeriodicCheckLoop()
+  }
+
+  fun syncTimerFromWidgetStore() {
+    val snap = WidgetTimerStore.load(app)
+    val nowElapsed = SystemClock.elapsedRealtime()
+    val state = snap.state
+    if (state.isRunning && state.remainingSeconds <= 0) {
+      mainTimerTargetElapsedMs = nowElapsed
+      _mainTimer.value = state.copy(remainingSeconds = 0, isRunning = true)
+    } else {
+      mainTimerTargetElapsedMs = if (state.isRunning) snap.targetElapsedRealtimeMs else 0L
+      _mainTimer.value = state
+    }
+  }
+
+  fun refreshOngoingTimerNotification() {
+    val state = _mainTimer.value
+    val nowElapsed = SystemClock.elapsedRealtime()
+    val nowWall = System.currentTimeMillis()
+    val targetWall = if (state.isRunning && mainTimerTargetElapsedMs > nowElapsed) {
+      nowWall + (mainTimerTargetElapsedMs - nowElapsed)
+    } else {
+      0L
+    }
+    NotificationHelper.updateOngoingTimerNotification(
+      context = app,
+      state = state,
+      targetWallClockMs = targetWall,
+      nowWallMs = nowWall,
+    )
+  }
+
+  private fun persistMainTimerToWidget(state: MainTimerState, targetElapsedMs: Long) {
+    val nowElapsed = SystemClock.elapsedRealtime()
+    val nowWall = System.currentTimeMillis()
+    WidgetTimerStore.save(
+      context = app,
+      state = state,
+      targetElapsedRealtimeMs = targetElapsedMs,
+      nowElapsedMs = nowElapsed,
+      nowWallMs = nowWall,
+    )
+    val targetWall = if (state.isRunning && targetElapsedMs > nowElapsed) {
+      nowWall + (targetElapsedMs - nowElapsed)
+    } else {
+      0L
+    }
+    if (targetWall > nowWall) {
+      TimerWidgetProvider.scheduleFinishAlarm(app, targetWall)
+    } else {
+      TimerWidgetProvider.cancelFinishAlarm(app)
+    }
+    NotificationHelper.updateOngoingTimerNotification(
+      context = app,
+      state = state,
+      targetWallClockMs = targetWall,
+      nowWallMs = nowWall,
+    )
+    WidgetRefreshHelper.refreshTimerWidgets(app)
   }
 
   private fun startTimerLoop() {
@@ -295,9 +368,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   fun setMainTimerMode(mode: MainTimerMode) {
     val current = _mainTimer.value
     if (current.mode == mode) return
-    if (mode == MainTimerMode.POMODORO) {
+    val next = if (mode == MainTimerMode.POMODORO) {
       val sec = 25 * 60
-      _mainTimer.value = current.copy(
+      current.copy(
         mode = MainTimerMode.POMODORO,
         pomodoroPhase = PomodoroPhase.FOCUS,
         totalSeconds = sec,
@@ -307,29 +380,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     } else {
       val sec = (current.customHours * 3600 + current.customMinutes * 60 + current.customSeconds)
         .coerceAtLeast(1)
-      _mainTimer.value = current.copy(
+      current.copy(
         mode = MainTimerMode.TIMER,
         totalSeconds = sec,
         remainingSeconds = sec,
         isRunning = false,
       )
     }
+    mainTimerTargetElapsedMs = 0L
+    _mainTimer.value = next
+    persistMainTimerToWidget(next, 0L)
   }
 
   fun setTimerPreset(minutes: Int) {
     val safeMin = minutes.coerceAtLeast(1)
     val sec = safeMin * 60
-    _mainTimer.update {
-      it.copy(
-        mode = MainTimerMode.TIMER,
-        customHours = safeMin / 60,
-        customMinutes = safeMin % 60,
-        customSeconds = 0,
-        totalSeconds = sec,
-        remainingSeconds = sec,
-        isRunning = false,
-      )
-    }
+    val next = _mainTimer.value.copy(
+      mode = MainTimerMode.TIMER,
+      customHours = safeMin / 60,
+      customMinutes = safeMin % 60,
+      customSeconds = 0,
+      totalSeconds = sec,
+      remainingSeconds = sec,
+      isRunning = false,
+    )
+    mainTimerTargetElapsedMs = 0L
+    _mainTimer.value = next
+    persistMainTimerToWidget(next, 0L)
   }
 
   fun updateCustomDuration(hours: Int, minutes: Int, seconds: Int) {
@@ -337,34 +414,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val m = minutes.coerceIn(0, 59)
     val s = seconds.coerceIn(0, 59)
     val total = (h * 3600 + m * 60 + s).coerceAtLeast(1)
-    _mainTimer.update {
-      it.copy(
-        mode = MainTimerMode.TIMER,
-        customHours = h,
-        customMinutes = m,
-        customSeconds = s,
-        totalSeconds = total,
-        remainingSeconds = total,
-        isRunning = false,
-      )
-    }
+    val next = _mainTimer.value.copy(
+      mode = MainTimerMode.TIMER,
+      customHours = h,
+      customMinutes = m,
+      customSeconds = s,
+      totalSeconds = total,
+      remainingSeconds = total,
+      isRunning = false,
+    )
+    mainTimerTargetElapsedMs = 0L
+    _mainTimer.value = next
+    persistMainTimerToWidget(next, 0L)
   }
 
   fun toggleMainTimer() {
     val cur = _mainTimer.value
     if (cur.isRunning) {
-      _mainTimer.update { it.copy(isRunning = false) }
+      val paused = cur.copy(isRunning = false)
+      mainTimerTargetElapsedMs = 0L
+      _mainTimer.value = paused
+      persistMainTimerToWidget(paused, 0L)
     } else {
       val rem = if (cur.remainingSeconds <= 0) cur.totalSeconds.coerceAtLeast(1) else cur.remainingSeconds
-      mainTimerTargetElapsedMs = SystemClock.elapsedRealtime() + rem * 1000L
-      _mainTimer.update { it.copy(remainingSeconds = rem, isRunning = true) }
+      val target = SystemClock.elapsedRealtime() + rem * 1000L
+      val running = cur.copy(remainingSeconds = rem, isRunning = true)
+      mainTimerTargetElapsedMs = target
+      _mainTimer.value = running
+      persistMainTimerToWidget(running, target)
     }
   }
 
   fun resetMainTimer() {
-    _mainTimer.update {
-      it.copy(remainingSeconds = it.totalSeconds, isRunning = false)
-    }
+    val next = _mainTimer.value.copy(remainingSeconds = _mainTimer.value.totalSeconds, isRunning = false)
+    mainTimerTargetElapsedMs = 0L
+    _mainTimer.value = next
+    persistMainTimerToWidget(next, 0L)
   }
 
   fun skipMainTimerPhase() {
@@ -380,14 +465,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         PomodoroPhase.SHORT_BREAK -> 5 * 60
         PomodoroPhase.LONG_BREAK -> 15 * 60
       }
-      _mainTimer.update {
-        it.copy(
-          pomodoroPhase = nextPhase,
-          totalSeconds = nextSec,
-          remainingSeconds = nextSec,
-          isRunning = false,
-        )
-      }
+      val next = cur.copy(
+        pomodoroPhase = nextPhase,
+        totalSeconds = nextSec,
+        remainingSeconds = nextSec,
+        isRunning = false,
+      )
+      mainTimerTargetElapsedMs = 0L
+      _mainTimer.value = next
+      persistMainTimerToWidget(next, 0L)
       emitToast("Przełączono na: ${nextPhase.label}")
     } else {
       resetMainTimer()
@@ -398,6 +484,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   private suspend fun onMainTimerFinished() {
     val cur = _mainTimer.value
     NotificationHelper.vibratePattern(app)
+    TimerSoundHelper.playGentleGong(app)
 
     if (cur.mode == MainTimerMode.POMODORO) {
       if (cur.pomodoroPhase == PomodoroPhase.FOCUS) {
@@ -409,15 +496,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
           completedFullPomodoroCycle = nextPhase == PomodoroPhase.LONG_BREAK,
         )
         val nextSec = if (nextPhase == PomodoroPhase.LONG_BREAK) 15 * 60 else 5 * 60
-        _mainTimer.update {
-          it.copy(
-            completedFocusCount = newFocusCount,
-            pomodoroPhase = nextPhase,
-            totalSeconds = nextSec,
-            remainingSeconds = nextSec,
-            isRunning = false,
-          )
-        }
+        val nextState = cur.copy(
+          completedFocusCount = newFocusCount,
+          pomodoroPhase = nextPhase,
+          totalSeconds = nextSec,
+          remainingSeconds = nextSec,
+          isRunning = false,
+        )
+        mainTimerTargetElapsedMs = 0L
+        _mainTimer.value = nextState
+        persistMainTimerToWidget(nextState, 0L)
         NotificationHelper.showNotification(
           context = app,
           notificationId = 8801,
@@ -428,14 +516,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         emitOutcome(outcome)
       } else {
         val nextSec = 25 * 60
-        _mainTimer.update {
-          it.copy(
-            pomodoroPhase = PomodoroPhase.FOCUS,
-            totalSeconds = nextSec,
-            remainingSeconds = nextSec,
-            isRunning = false,
-          )
-        }
+        val nextState = cur.copy(
+          pomodoroPhase = PomodoroPhase.FOCUS,
+          totalSeconds = nextSec,
+          remainingSeconds = nextSec,
+          isRunning = false,
+        )
+        mainTimerTargetElapsedMs = 0L
+        _mainTimer.value = nextState
+        persistMainTimerToWidget(nextState, 0L)
         NotificationHelper.showNotification(
           context = app,
           notificationId = 8802,
@@ -447,7 +536,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
       }
     } else {
       val outcome = repository.completeFocusSession(cur.totalSeconds)
-      _mainTimer.update { it.copy(remainingSeconds = 0, isRunning = false) }
+      val nextState = cur.copy(remainingSeconds = 0, isRunning = false)
+      mainTimerTargetElapsedMs = 0L
+      _mainTimer.value = nextState
+      persistMainTimerToWidget(nextState, 0L)
       NotificationHelper.showNotification(
         context = app,
         notificationId = 8803,
@@ -497,9 +589,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
   }
 
   fun stopAndResetAllTimers() {
-    _mainTimer.update {
-      it.copy(remainingSeconds = it.totalSeconds, isRunning = false)
-    }
+    val resetMain = _mainTimer.value.copy(remainingSeconds = _mainTimer.value.totalSeconds, isRunning = false)
+    mainTimerTargetElapsedMs = 0L
+    _mainTimer.value = resetMain
+    persistMainTimerToWidget(resetMain, 0L)
     val curTask = _taskTimer.value
     _taskTimer.value = TaskInlineTimerState(
       taskId = 0L,
@@ -529,12 +622,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val taskName = uiState.value.tasks.find { it.id == cur.taskId }?.name ?: "zadanie"
     _taskTimer.update { it.copy(remainingSeconds = 0, isRunning = false) }
     NotificationHelper.vibratePattern(app)
+    TimerSoundHelper.playGentleGong(app)
     NotificationHelper.showNotification(
       context = app,
       notificationId = 8900 + (cur.taskId % 100).toInt(),
       channelId = NotificationHelper.CHANNEL_TIMER,
       title = "Czas zadania minął!",
       body = "Zakończono odliczanie dla: $taskName",
+      targetRoute = "start",
     )
     emitToast("Czas minął: $taskName")
   }
@@ -692,6 +787,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
   fun setTheme(theme: AppThemeId) {
     viewModelScope.launch { repository.setTheme(theme) }
+  }
+
+  fun setSystemTheme() {
+    viewModelScope.launch { repository.setSystemTheme() }
+  }
+
+  fun markTutorialCompleted() {
+    viewModelScope.launch { repository.markTutorialCompleted() }
   }
 
   fun setFontSize(fontSize: AppFontSize) {

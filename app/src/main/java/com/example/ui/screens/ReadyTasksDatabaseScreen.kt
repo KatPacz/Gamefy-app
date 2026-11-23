@@ -66,6 +66,8 @@ import com.example.data.model.formatFrequencyLabel
 import com.example.ui.components.PixelButton
 import com.example.ui.components.PixelEmptyStateCard
 import com.example.ui.components.PixelCard
+import com.example.ui.components.TutorialTargetIds
+import com.example.ui.components.tutorialTarget
 import com.example.ui.theme.LocalGamefyPalette
 import com.example.ui.theme.PixelColors
 import com.example.ui.theme.PixelFontFamily
@@ -386,14 +388,23 @@ fun ReadyTasksDatabaseScreen(
             )
           }
         } else {
+          val firstTplId = filteredTemplates.firstOrNull()?.id
           items(filteredTemplates, key = { it.id }) { tpl ->
             val alreadyAdded = tpl.id in existingSourceTemplateIds
-            ReadyTaskTemplateCard(
-              template = tpl,
-              alreadyAdded = alreadyAdded,
-              onOpenDetails = { detailTemplate = tpl },
-              onAdd = { onAddTemplate(tpl) },
-            )
+            Box(
+              modifier = if (tpl.id == firstTplId) {
+                Modifier.tutorialTarget(TutorialTargetIds.READY_TASKS_FIRST)
+              } else {
+                Modifier
+              },
+            ) {
+              ReadyTaskTemplateCard(
+                template = tpl,
+                alreadyAdded = alreadyAdded,
+                onOpenDetails = { detailTemplate = tpl },
+                onAdd = { onAddTemplate(tpl) },
+              )
+            }
           }
         }
         item { Spacer(modifier = Modifier.height(14.dp)) }

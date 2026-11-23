@@ -1,7 +1,9 @@
 package com.example
 
+import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -16,6 +18,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -47,6 +50,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,6 +59,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,12 +80,18 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.compose.ui.platform.LocalView
+import androidx.core.view.WindowCompat
 import com.example.data.model.AchievementDefinition
 import com.example.notifications.NotificationHelper
 import com.example.ui.MainViewModel
 import com.example.ui.components.AchievementPillBanner
+import com.example.ui.components.GuidedTutorialOverlay
+import com.example.ui.components.GuidedTutorialStep
+import com.example.ui.components.LocalTutorialTargetRegistry
 import com.example.ui.components.PixelIcon
 import com.example.ui.components.TopHudHeader
+import com.example.ui.components.TutorialTargetRegistry
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -160,9 +171,11 @@ fun GamefyRootScreen(
   val currentAchievementBanner = achievementQueue.firstOrNull()
   var scrollToAchievementsNonce by remember { mutableIntStateOf(0) }
   var scrollToNotificationsNonce by remember { mutableIntStateOf(0) }
+  var scrollToBackupNonce by remember { mutableIntStateOf(0) }
   var openLibraryNonce by remember { mutableIntStateOf(0) }
   var pendingOpenTasksAfterOnboarding by remember { mutableStateOf(false) }
   var showExitTimerDialog by remember { mutableStateOf(false) }
+  var activeTutorialStep by remember { mutableStateOf<GuidedTutorialStep?>(null) }
 
   val context = LocalContext.current
   val activity = context as? Activity
@@ -186,6 +199,15 @@ fun GamefyRootScreen(
     }
   }
 
+  var askedTimerNotifPermission by rememberSaveable { mutableStateOf(false) }
+  val timerNotificationPermissionLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.RequestPermission(),
+  ) { granted ->
+    if (granted) {
+      viewModel.refreshOngoingTimerNotification()
+    }
+  }
+
   LaunchedEffect(uiState.isLoaded, uiState.profile.onboardingCompleted) {
     if (uiState.isLoaded && uiState.profile.onboardingCompleted) {
       viewModel.checkWeeklyBackupReminder()
@@ -194,8 +216,11 @@ fun GamefyRootScreen(
 
   DisposableEffect(lifecycleOwner, uiState.isLoaded, uiState.profile.onboardingCompleted) {
     val observer = LifecycleEventObserver { _, event ->
-      if (event == Lifecycle.Event.ON_RESUME && uiState.isLoaded && uiState.profile.onboardingCompleted) {
-        viewModel.checkWeeklyBackupReminder()
+      if (event == Lifecycle.Event.ON_RESUME) {
+        viewModel.syncTimerFromWidgetStore()
+        if (uiState.isLoaded && uiState.profile.onboardingCompleted) {
+          viewModel.checkWeeklyBackupReminder()
+        }
       }
     }
     lifecycleOwner.lifecycle.addObserver(observer)
@@ -264,28 +289,55 @@ fun GamefyRootScreen(
     }
   }
 
+  val isSystemDark = isSystemInDarkTheme()
+  val effectiveThemeId = uiState.resolvedThemeId(isSystemDark)
+
   GamefyTheme(
-    themeId = uiState.themeId,
+    themeId = effectiveThemeId,
     fontSize = uiState.fontSize,
     fontFamilyOption = uiState.fontFamilyOption,
     wordSpacing = uiState.wordSpacing,
   ) {
     val palette = LocalGamefyPalette.current
+    val view = LocalView.current
+    DisposableEffect(palette.isDark, view, activity) {
+      val window = activity?.window
+      if (window != null) {
+        val controller = WindowCompat.getInsetsController(window, view)
+        controller.isAppearanceLightStatusBars = !palette.isDark
+        controller.isAppearanceLightNavigationBars = !palette.isDark
+      }
+      onDispose {}
+    }
+
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: ROUTE_START
     val isTopTab = NAV_TABS.any { it.route == currentRoute }
 
-    LaunchedEffect(requestedRoute, uiState.isLoaded) {
-      if (uiState.isLoaded && requestedRoute == ROUTE_TASKS) {
-        if (currentRoute != ROUTE_TASKS) {
-          navController.navigate(ROUTE_TASKS) {
-            popUpTo(ROUTE_START) { saveState = true }
-            launchSingleTop = true
-            restoreState = true
+    LaunchedEffect(requestedRoute, uiState.isLoaded, uiState.profile.onboardingCompleted) {
+      val target = requestedRoute ?: return@LaunchedEffect
+      if (!uiState.isLoaded) return@LaunchedEffect
+      if (!uiState.profile.onboardingCompleted) return@LaunchedEffect
+      when {
+        target == ROUTE_TASKS || target == ROUTE_START || target == ROUTE_SHOP ||
+          target == ROUTE_CHEST || target == ROUTE_PROFILE -> {
+          if (currentRoute != target) {
+            navController.navigate(target) {
+              popUpTo(ROUTE_START) { saveState = true }
+              launchSingleTop = true
+              restoreState = true
+            }
           }
+          onConsumeRequestedRoute()
         }
-        onConsumeRequestedRoute()
+        target.startsWith("task_edit/") -> {
+          navController.navigate(target) {
+            launchSingleTop = true
+          }
+          onConsumeRequestedRoute()
+        }
+        else -> onConsumeRequestedRoute()
       }
     }
 
@@ -341,10 +393,70 @@ fun GamefyRootScreen(
       }
     }
 
+    // Guided post-onboarding tutorial lifecycle (active only after "Zacznij od zera" or Survey)
+    val starterInactiveTask = remember(uiState.tasks) {
+      uiState.tasks.find { !it.isActive && it.name == com.example.data.repository.GamefyRepository.STARTER_TUTORIAL_TASK_NAME }
+        ?: uiState.tasks.firstOrNull { !it.isActive }
+    }
+
+    fun navigateTopTabForTutorial(route: String) {
+      navController.navigate(route) {
+        popUpTo(ROUTE_START) { saveState = false }
+        launchSingleTop = true
+        restoreState = false
+      }
+    }
+
+    fun goToTutorialStep(step: GuidedTutorialStep) {
+      activeTutorialStep = step
+      when (step) {
+        GuidedTutorialStep.TASKS_AND_INACTIVE -> {
+          openLibraryNonce++
+          navigateTopTabForTutorial(ROUTE_TASKS)
+        }
+        GuidedTutorialStep.TASK_EDITOR -> {
+          val targetId = starterInactiveTask?.id ?: uiState.tasks.firstOrNull()?.id ?: 0L
+          if (currentRoute != ROUTE_TASK_EDIT) {
+            navController.navigate("task_edit/$targetId") { launchSingleTop = true }
+          }
+        }
+        GuidedTutorialStep.ACTIVATE_AND_ADD -> {
+          openLibraryNonce++
+          navigateTopTabForTutorial(ROUTE_TASKS)
+        }
+        GuidedTutorialStep.SIDE_QUESTS -> {
+          navController.navigate(ROUTE_ADVENTURE_BOARD) { launchSingleTop = true }
+        }
+        GuidedTutorialStep.SHOP -> {
+          navigateTopTabForTutorial(ROUTE_SHOP)
+        }
+        GuidedTutorialStep.CHEST -> {
+          navigateTopTabForTutorial(ROUTE_CHEST)
+        }
+        GuidedTutorialStep.READY_TASKS -> {
+          navController.navigate(ROUTE_READY_TASKS) { launchSingleTop = true }
+        }
+        GuidedTutorialStep.SETTINGS_AND_BACKUP -> {
+          scrollToBackupNonce++
+          navigateTopTabForTutorial(ROUTE_PROFILE)
+        }
+      }
+    }
+
+    LaunchedEffect(uiState.profile.tutorialPending, uiState.profile.onboardingCompleted) {
+      if (uiState.profile.onboardingCompleted && uiState.profile.tutorialPending && activeTutorialStep == null) {
+        goToTutorialStep(GuidedTutorialStep.TASKS_AND_INACTIVE)
+      } else if (!uiState.profile.tutorialPending && activeTutorialStep != null) {
+        activeTutorialStep = null
+      }
+    }
+
     val levelProgress = remember(uiState.profile.exp) {
       com.example.data.model.calculateLevel(uiState.profile.exp)
     }
+    val tutorialTargetRegistry = remember { TutorialTargetRegistry() }
 
+    CompositionLocalProvider(LocalTutorialTargetRegistry provides tutorialTargetRegistry) {
     BoxWithConstraints(
       modifier = Modifier
         .fillMaxSize()
@@ -502,7 +614,19 @@ fun GamefyRootScreen(
                 onSelectTimerMode = viewModel::setMainTimerMode,
                 onSelectTimerPreset = viewModel::setTimerPreset,
                 onUpdateCustomDuration = viewModel::updateCustomDuration,
-                onToggleMainTimer = viewModel::toggleMainTimer,
+                onToggleMainTimer = {
+                  val startingNow = !mainTimer.isRunning
+                  viewModel.toggleMainTimer()
+                  if (
+                    startingNow &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    !NotificationHelper.hasNotificationPermission(context) &&
+                    !askedTimerNotifPermission
+                  ) {
+                    askedTimerNotifPermission = true
+                    timerNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                  }
+                },
                 onSkipMainTimer = viewModel::skipMainTimerPhase,
                 onResetMainTimer = viewModel::resetMainTimer,
                 onCompleteTask = viewModel::completeTask,
@@ -527,7 +651,12 @@ fun GamefyRootScreen(
                 uiState = uiState,
                 inlineTimer = taskTimer,
                 onCreateNewTask = { navController.navigate("task_edit/0") },
-                onEditTask = { taskId -> navController.navigate("task_edit/$taskId") },
+                onEditTask = { taskId ->
+                  if (activeTutorialStep == GuidedTutorialStep.TASKS_AND_INACTIVE) {
+                    activeTutorialStep = GuidedTutorialStep.TASK_EDITOR
+                  }
+                  navController.navigate("task_edit/$taskId")
+                },
                 onCompleteTask = viewModel::completeTask,
                 onToggleSubtask = viewModel::toggleSubtask,
                 onSkipTask = viewModel::skipTask,
@@ -536,7 +665,12 @@ fun GamefyRootScreen(
                 onToggleTaskTimer = viewModel::toggleTaskTimer,
                 onResetTaskTimer = viewModel::resetTaskTimer,
                 onDismissFocusView = viewModel::dismissTaskFocusView,
-                onActivateTask = viewModel::activateLibraryTask,
+                onActivateTask = { taskId ->
+                  viewModel.activateLibraryTask(taskId)
+                  if (activeTutorialStep == GuidedTutorialStep.ACTIVATE_AND_ADD) {
+                    goToTutorialStep(GuidedTutorialStep.SIDE_QUESTS)
+                  }
+                },
                 onOpenRandomQuest = {
                   navController.navigate(ROUTE_ADVENTURE_BOARD) { launchSingleTop = true }
                 },
@@ -578,6 +712,7 @@ fun GamefyRootScreen(
                 uiState = uiState,
                 scrollToAchievementsTrigger = scrollToAchievementsNonce,
                 scrollToNotificationsTrigger = scrollToNotificationsNonce,
+                scrollToBackupTrigger = scrollToBackupNonce,
                 onAddAttribute = viewModel::addAttribute,
                 onUpdateAttribute = viewModel::updateAttribute,
                 onDeleteAttribute = viewModel::deleteAttribute,
@@ -588,6 +723,7 @@ fun GamefyRootScreen(
                 onUpdateTag = viewModel::updateTag,
                 onDeleteTag = viewModel::deleteTag,
                 onSelectTheme = viewModel::setTheme,
+                onSelectSystemTheme = viewModel::setSystemTheme,
                 onSelectFontSize = viewModel::setFontSize,
                 onSelectFontFamily = viewModel::setFontFamily,
                 onSelectWordSpacing = viewModel::setWordSpacing,
@@ -645,7 +781,13 @@ fun GamefyRootScreen(
                 existingTask = existingTask,
                 uiState = uiState,
                 onCreateOrFindTag = viewModel::getOrCreateTag,
-                onSaveTask = viewModel::saveTask,
+                onSaveTask = { editedTask ->
+                  viewModel.saveTask(editedTask)
+                  if (activeTutorialStep == GuidedTutorialStep.TASK_EDITOR) {
+                    activeTutorialStep = GuidedTutorialStep.ACTIVATE_AND_ADD
+                    openLibraryNonce++
+                  }
+                },
                 onDeleteTask = viewModel::deleteTask,
                 onOpenNotificationSettings = {
                   scrollToNotificationsNonce++
@@ -653,7 +795,16 @@ fun GamefyRootScreen(
                     launchSingleTop = true
                   }
                 },
-                onBack = { navController.popBackStack() },
+                onBack = {
+                  if (
+                    activeTutorialStep == GuidedTutorialStep.ACTIVATE_AND_ADD &&
+                    navController.previousBackStackEntry?.destination?.route != ROUTE_TASKS
+                  ) {
+                    navigateTopTabForTutorial(ROUTE_TASKS)
+                  } else {
+                    navController.popBackStack()
+                  }
+                },
               )
             }
           }
@@ -752,6 +903,36 @@ fun GamefyRootScreen(
         )
       }
 
+      val tutorialStepNow = activeTutorialStep
+      if (tutorialStepNow != null) {
+        val steps = GuidedTutorialStep.entries
+        val currentIdx = steps.indexOf(tutorialStepNow)
+        GuidedTutorialOverlay(
+          step = tutorialStepNow,
+          hasStarterTaskToEdit = starterInactiveTask != null || uiState.tasks.isNotEmpty(),
+          showBottomNavOffset = isTopTab && !useNavigationRail,
+          onPrimaryAction = {
+            if (currentIdx + 1 < steps.size) {
+              goToTutorialStep(steps[currentIdx + 1])
+            } else {
+              activeTutorialStep = null
+              viewModel.markTutorialCompleted()
+              navigateTopTabForTutorial(ROUTE_TASKS)
+            }
+          },
+          onPrevious = if (currentIdx > 0) {
+            { goToTutorialStep(steps[currentIdx - 1]) }
+          } else {
+            null
+          },
+          onSkip = {
+            activeTutorialStep = null
+            viewModel.markTutorialCompleted()
+          },
+          modifier = Modifier.fillMaxSize(),
+        )
+      }
+
       AnimatedVisibility(
         visible = currentAchievementBanner != null,
         enter = slideInVertically { -it } + fadeIn(),
@@ -780,6 +961,7 @@ fun GamefyRootScreen(
           )
         }
       }
+    }
     }
   }
 }

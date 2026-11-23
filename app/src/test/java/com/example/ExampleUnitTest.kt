@@ -569,6 +569,191 @@ class ExampleUnitTest {
     assertEquals(1, comebackRes.newStreak)
     assertTrue(comebackRes.isComebackAfterBreak)
   }
+
+  @Test
+  fun systemDefaultThemeResolvesDayAndNightAndWidgetThemeHelperMatchesPalette() {
+    assertEquals(
+      AppThemeId.VIOLET,
+      com.example.data.model.resolveEffectiveThemeId(com.example.data.model.THEME_CODE_SYSTEM, isSystemDark = false),
+    )
+    assertEquals(
+      AppThemeId.NIGHT,
+      com.example.data.model.resolveEffectiveThemeId(com.example.data.model.THEME_CODE_SYSTEM, isSystemDark = true),
+    )
+    assertEquals(
+      AppThemeId.NIGHT,
+      com.example.data.model.resolveEffectiveThemeId("", isSystemDark = true),
+    )
+    assertEquals(
+      AppThemeId.FOREST,
+      com.example.data.model.resolveEffectiveThemeId(AppThemeId.FOREST.code, isSystemDark = true),
+    )
+
+    val sysDarkWidget = com.example.widgets.WidgetThemeHelper.resolveColors(
+      themeCode = com.example.data.model.THEME_CODE_SYSTEM,
+      isSystemDark = true,
+    )
+    assertEquals(AppThemeId.NIGHT, sysDarkWidget.themeId)
+    assertTrue(sysDarkWidget.isDark)
+
+    val sysLightWidget = com.example.widgets.WidgetThemeHelper.resolveColors(
+      themeCode = com.example.data.model.THEME_CODE_SYSTEM,
+      isSystemDark = false,
+    )
+    assertEquals(AppThemeId.VIOLET, sysLightWidget.themeId)
+    assertFalse(sysLightWidget.isDark)
+
+    val amoledWidget = com.example.widgets.WidgetThemeHelper.resolveColors(
+      themeCode = AppThemeId.AMOLED.code,
+      isSystemDark = false,
+    )
+    assertEquals(AppThemeId.AMOLED, amoledWidget.themeId)
+    assertTrue(amoledWidget.isDark)
+
+    val hcDarkWidget = com.example.widgets.WidgetThemeHelper.resolveColors(
+      themeCode = AppThemeId.HIGH_CONTRAST_NIGHT.code,
+      isSystemDark = false,
+    )
+    assertTrue(hcDarkWidget.isHighContrast)
+    assertTrue(hcDarkWidget.isDark)
+  }
+
+  @Test
+  fun todayTasksWidgetLogicOrdersTasksComputesCounterAndAdaptsRowLimits() {
+    assertEquals(2, com.example.widgets.TodayTasksWidgetLogic.computeMaxRowsForHeightDp(120))
+    assertEquals(3, com.example.widgets.TodayTasksWidgetLogic.computeMaxRowsForHeightDp(180))
+    assertEquals(4, com.example.widgets.TodayTasksWidgetLogic.computeMaxRowsForHeightDp(240))
+    assertEquals(5, com.example.widgets.TodayTasksWidgetLogic.computeMaxRowsForHeightDp(310))
+
+    val cal = Calendar.getInstance().apply {
+      set(2026, Calendar.NOVEMBER, 23, 12, 0, 0)
+      set(Calendar.MILLISECOND, 0)
+    }
+    val now = cal.timeInMillis
+    val tomorrowNoon = now + 24L * 60 * 60 * 1000
+
+    val tasks = listOf(
+      com.example.data.local.TaskEntity(
+        id = 1L,
+        name = "Bez terminu",
+        startTimestamp = now - 60_000L,
+        dueTimestamp = null,
+        isActive = true,
+      ),
+      com.example.data.local.TaskEntity(
+        id = 2L,
+        name = "Zaległe pilne",
+        startTimestamp = now - 3_600_000L,
+        dueTimestamp = now - 1_800_000L,
+        isActive = true,
+      ),
+      com.example.data.local.TaskEntity(
+        id = 3L,
+        name = "Dzisiejsze popołudnie",
+        startTimestamp = now - 60_000L,
+        dueTimestamp = now + 2 * 3_600_000L,
+        isActive = true,
+      ),
+      com.example.data.local.TaskEntity(
+        id = 4L,
+        name = "Jutrzejsze",
+        startTimestamp = now - 60_000L,
+        dueTimestamp = tomorrowNoon,
+        isActive = true,
+      ),
+      com.example.data.local.TaskEntity(
+        id = 5L,
+        name = "Nieaktywne w bibliotece",
+        startTimestamp = now - 60_000L,
+        dueTimestamp = null,
+        isActive = false,
+      ),
+    )
+    val doneEvent = com.example.data.local.ActivityEventEntity(
+      id = 10L,
+      timestamp = now - 120_000L,
+      eventType = com.example.data.model.ActivityEventType.TASK_DONE,
+      taskName = "Już zrobione dziś",
+    )
+
+    val snap = com.example.widgets.TodayTasksWidgetLogic.buildSnapshot(
+      tasks = tasks,
+      activityEvents = listOf(doneEvent),
+      pendingUndos = emptyList(),
+      nowMillis = now,
+      maxRows = 5,
+    )
+    // 1 done today + 3 active today/overdue/timeless = 4 total (tomorrow & inactive excluded)
+    assertEquals("Dziś: 1/4", snap.headerCounterText)
+    assertEquals(listOf(2L, 3L, 1L), snap.rows.map { it.taskId })
+    assertTrue(snap.rows[0].isOverdue)
+    assertFalse(snap.rows[1].isOverdue)
+  }
+
+  @Test
+  fun gentleGongPcmHasSmoothAttackGentlePeakAndDecaysToSilence() {
+    val pcm = com.example.notifications.TimerSoundHelper.generateGentleGongPcm()
+    val expectedSamples = (
+      com.example.notifications.TimerSoundHelper.SAMPLE_RATE_HZ *
+        com.example.notifications.TimerSoundHelper.DURATION_SECONDS
+      ).toInt()
+    assertEquals(expectedSamples, pcm.size)
+    // Starts smoothly at zero (no click)
+    assertEquals(0, pcm.first().toInt())
+    // Peak is audible yet gentle (never clips near Short.MAX_VALUE)
+    val peak = pcm.maxOf { kotlin.math.abs(it.toInt()) }
+    assertTrue("Expected audible gong peak, got $peak", peak in 4_000..24_000)
+    // Tail decays smoothly to near silence
+    val tailPeak = pcm.takeLast(500).maxOf { kotlin.math.abs(it.toInt()) }
+    assertTrue("Expected gentle fade-out tail, got $tailPeak", tailPeak < 600)
+  }
+
+  @Test
+  fun tutorialBubbleDockStaysOppositeHighlightedTargetToAvoidObstruction() {
+    val screenHeight = 2000f
+    // Target near top -> bubble docks at BOTTOM
+    val topTarget = androidx.compose.ui.geometry.Rect(left = 40f, top = 160f, right = 900f, bottom = 300f)
+    assertEquals(
+      com.example.ui.components.TutorialBubbleDock.BOTTOM,
+      com.example.ui.components.resolveTutorialBubbleDock(
+        targetRect = topTarget,
+        containerHeightPx = screenHeight,
+        preferredDock = com.example.ui.components.TutorialBubbleDock.TOP,
+      ),
+    )
+
+    // Target near bottom -> bubble docks at TOP
+    val bottomTarget = androidx.compose.ui.geometry.Rect(left = 40f, top = 1450f, right = 900f, bottom = 1620f)
+    assertEquals(
+      com.example.ui.components.TutorialBubbleDock.TOP,
+      com.example.ui.components.resolveTutorialBubbleDock(
+        targetRect = bottomTarget,
+        containerHeightPx = screenHeight,
+        preferredDock = com.example.ui.components.TutorialBubbleDock.BOTTOM,
+      ),
+    )
+
+    // No target measured yet -> falls back to step's preferredDock
+    assertEquals(
+      com.example.ui.components.TutorialBubbleDock.TOP,
+      com.example.ui.components.resolveTutorialBubbleDock(
+        targetRect = null,
+        containerHeightPx = screenHeight,
+        preferredDock = com.example.ui.components.TutorialBubbleDock.TOP,
+      ),
+    )
+
+    // Task editor preferred ABOVE_BOTTOM_BAR stays above Save bar on standard screen height
+    val saveBarTarget = androidx.compose.ui.geometry.Rect(left = 300f, top = 1820f, right = 1000f, bottom = 1940f)
+    assertEquals(
+      com.example.ui.components.TutorialBubbleDock.ABOVE_BOTTOM_BAR,
+      com.example.ui.components.resolveTutorialBubbleDock(
+        targetRect = saveBarTarget,
+        containerHeightPx = screenHeight,
+        preferredDock = com.example.ui.components.TutorialBubbleDock.ABOVE_BOTTOM_BAR,
+      ),
+    )
+  }
 }
 
 

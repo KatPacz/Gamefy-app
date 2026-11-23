@@ -16,11 +16,22 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.ui.MainTimerMode
+import com.example.ui.MainTimerState
+import com.example.ui.PomodoroPhase
+import com.example.widgets.TimerWidgetProvider
+import com.example.widgets.WidgetTimerStore
 
 object NotificationHelper {
   const val CHANNEL_REMINDERS = "gamefy_reminders"
   const val CHANNEL_TIMER = "gamefy_timer"
+  const val CHANNEL_TIMER_ONGOING = "gamefy_timer_ongoing"
   const val EXTRA_TARGET_ROUTE = "target_route"
+  const val NOTIFICATION_ID_TIMER_ONGOING = 8800
+
+  private const val REQUEST_CODE_TIMER_OPEN = 8810
+  private const val REQUEST_CODE_TIMER_PAUSE_RESUME = 8811
+  private const val REQUEST_CODE_TIMER_CANCEL = 8812
 
   fun ensureChannels(context: Context) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -39,8 +50,19 @@ object NotificationHelper {
       ).apply {
         description = "Powiadomienia o zakończeniu sesji timera"
       }
+      val timerOngoingChannel = NotificationChannel(
+        CHANNEL_TIMER_ONGOING,
+        "Aktywne odliczanie",
+        NotificationManager.IMPORTANCE_LOW,
+      ).apply {
+        description = "Stałe powiadomienie z trwającym odliczaniem i szybką kontrolą"
+        setSound(null, null)
+        enableVibration(false)
+        setShowBadge(false)
+      }
       manager.createNotificationChannel(reminderChannel)
       manager.createNotificationChannel(timerChannel)
+      manager.createNotificationChannel(timerOngoingChannel)
     }
   }
 
@@ -120,6 +142,102 @@ object NotificationHelper {
       .build()
 
     NotificationManagerCompat.from(context).notify(notificationId, notification)
+  }
+
+  fun updateOngoingTimerNotification(
+    context: Context,
+    state: MainTimerState,
+    targetWallClockMs: Long,
+    nowWallMs: Long = System.currentTimeMillis(),
+  ) {
+    val isActivelyRunning = state.isRunning && state.remainingSeconds > 0 && targetWallClockMs > nowWallMs
+    val isPausedMidSession = !state.isRunning && state.remainingSeconds in 1 until state.totalSeconds
+    if (!isActivelyRunning && !isPausedMidSession) {
+      cancelOngoingTimerNotification(context)
+      return
+    }
+    ensureChannels(context)
+    if (!hasNotificationPermission(context)) return
+
+    val phaseTitle = when (state.mode) {
+      MainTimerMode.POMODORO -> when (state.pomodoroPhase) {
+        PomodoroPhase.FOCUS -> "Pomodoro · Sesja ${state.completedFocusCount + 1}"
+        PomodoroPhase.SHORT_BREAK -> "Pomodoro · Krótka przerwa"
+        PomodoroPhase.LONG_BREAK -> "Pomodoro · Długa przerwa"
+      }
+      MainTimerMode.TIMER -> "Timer"
+    }
+
+    val openIntent = Intent(context, MainActivity::class.java).apply {
+      flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+      putExtra(EXTRA_TARGET_ROUTE, "start")
+    }
+    val openPendingIntent = PendingIntent.getActivity(
+      context,
+      REQUEST_CODE_TIMER_OPEN,
+      openIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    val toggleIntent = Intent(context, TimerWidgetProvider::class.java).apply {
+      action = TimerWidgetProvider.ACTION_TOGGLE_TIMER
+    }
+    val togglePendingIntent = PendingIntent.getBroadcast(
+      context,
+      REQUEST_CODE_TIMER_PAUSE_RESUME,
+      toggleIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    val cancelIntent = Intent(context, TimerWidgetProvider::class.java).apply {
+      action = TimerWidgetProvider.ACTION_RESET_TIMER
+    }
+    val cancelPendingIntent = PendingIntent.getBroadcast(
+      context,
+      REQUEST_CODE_TIMER_CANCEL,
+      cancelIntent,
+      PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    val builder = NotificationCompat.Builder(context, CHANNEL_TIMER_ONGOING)
+      .setSmallIcon(R.drawable.ic_stat_gamefy)
+      .setContentIntent(openPendingIntent)
+      .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+      .setPriority(NotificationCompat.PRIORITY_LOW)
+      .setOnlyAlertOnce(true)
+      .setSilent(true)
+      .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+
+    if (isActivelyRunning) {
+      builder
+        .setContentTitle(phaseTitle)
+        .setContentText("Odliczanie w toku")
+        .setOngoing(true)
+        .setShowWhen(true)
+        .setWhen(targetWallClockMs)
+        .setUsesChronometer(true)
+        .setChronometerCountDown(true)
+        .addAction(0, "Pauza", togglePendingIntent)
+        .addAction(0, "Anuluj", cancelPendingIntent)
+    } else {
+      val remainingFormatted = WidgetTimerStore.formatClockText(state.remainingSeconds)
+      builder
+        .setContentTitle("$phaseTitle · Pauza")
+        .setContentText("Pozostało: $remainingFormatted")
+        .setOngoing(false)
+        .setShowWhen(false)
+        .setUsesChronometer(false)
+        .addAction(0, "Wznów", togglePendingIntent)
+        .addAction(0, "Anuluj", cancelPendingIntent)
+    }
+
+    NotificationManagerCompat.from(context).notify(NOTIFICATION_ID_TIMER_ONGOING, builder.build())
+  }
+
+  fun cancelOngoingTimerNotification(context: Context) {
+    runCatching {
+      NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID_TIMER_ONGOING)
+    }
   }
 
   @Suppress("DEPRECATION")
